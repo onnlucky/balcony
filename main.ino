@@ -1,4 +1,4 @@
-const int motor = 13;
+const int motor = 12;
 const int button = 11;
 const int moist = A0;
 
