@@ -1,5 +1,6 @@
 const int motor = 13;
 const int button = 11;
+const int moist = A0;
 
 #define DEBOUNCE_MS 30
 
@@ -11,6 +12,8 @@ const int button = 11;
 #define MAX_MOTOR_MS 1000 * 10
 #endif
 
+#define NEAR 5
+
 int done = false;
 
 void setup() {
@@ -21,6 +24,18 @@ void setup() {
 }
 
 void loop() {
+    static int mlast = 0;
+    int mstate = analogRead(moist);
+    if (abs(mlast - mstate) > NEAR) {
+        mlast = mstate;
+        Serial.print("moist: ");
+        Serial.println(mstate, DEC);
+        if (mstate < 400) {
+            Serial.println("under water");
+            done = true;
+        }
+    }
+
     // TODO deep sleep?
     if (done) {
         Serial.println("motor off");
@@ -33,7 +48,6 @@ void loop() {
     if (now >= MAX_MOTOR_MS) {
         Serial.println("max motor ms");
         done = true;
-        return;
     }
 
     static int blast = 0;
@@ -48,7 +62,6 @@ void loop() {
         if (bstate) {
             Serial.println("button down");
             done = true;
-            return;
         } else {
             Serial.println("button up");
         }
