@@ -165,7 +165,16 @@ ARDUINODIR := $(firstword $(wildcard ~/opt/arduino /usr/share/arduino \
 	/Applications/Arduino.app/Contents/Java))
 endif
 
-ifeq "$(wildcard $(ARDUINODIR)/hardware/arduino/avr/boards.txt)" ""
+DIR := unknown
+ifneq "$(wildcard $(ARDUINODIR)/hardware/arduino/avr/boards.txt)" ""
+	DIR := avr
+endif
+ifneq "$(wildcard $(ARDUINODIR)/hardware/arduino/boards.txt)" ""
+	DIR :=
+endif
+
+ifeq "$(wildcard $(ARDUINODIR)/hardware/arduino/$(DIR)/boards.txt)" ""
+$(info arduinodir=$(ARDUINODIR) dir=$(DIR))
 $(error ARDUINODIR is not set correctly; arduino software not found)
 endif
 
@@ -174,7 +183,7 @@ ARDUINOCONST ?= 100
 
 # default path for avr tools
 AVRTOOLSPATH ?= $(subst :, , $(PATH)) $(ARDUINODIR)/hardware/tools \
-	$(ARDUINODIR)/hardware/tools/avr/bin
+	$(ARDUINODIR)/hardware/tools/$(DIR)/bin
 
 # default path to find libraries
 LIBRARYPATH ?= libraries libs $(SKETCHBOOKDIR)/libraries $(ARDUINODIR)/libraries
@@ -197,7 +206,7 @@ endif
 endif
 
 # obtain board parameters from the arduino boards.txt file
-BOARDSFILE := $(ARDUINODIR)/hardware/arduino/avr/boards.txt
+BOARDSFILE := $(ARDUINODIR)/hardware/arduino/$(DIR)/boards.txt
 readboardsparam = $(shell sed -ne "s/$(BOARD).$(1)=\(.*\)/\1/p" $(BOARDSFILE))
 BOARD_BUILD_MCU := $(call readboardsparam,build.mcu)
 BOARD_BUILD_FCPU := $(call readboardsparam,build.f_cpu)
@@ -264,7 +273,7 @@ AVRDUDE := $(call findsoftware,avrdude)
 AVRSIZE := $(call findsoftware,avr-size)
 
 # directories
-ARDUINOCOREDIR := $(ARDUINODIR)/hardware/arduino/avr/cores/arduino
+ARDUINOCOREDIR := $(ARDUINODIR)/hardware/arduino/$(DIR)/cores/arduino
 LIBRARYDIRS := $(foreach lib, $(LIBRARIES), \
 	$(firstword $(wildcard $(addsuffix /$(lib), $(LIBRARYPATH)))))
 LIBRARYDIRS += $(addsuffix /utility, $(LIBRARYDIRS))
@@ -277,13 +286,13 @@ ARDUINOLIB := .lib/arduino.a
 ARDUINOLIBOBJS := $(foreach dir, $(ARDUINOCOREDIR) $(LIBRARYDIRS), \
 	$(patsubst %, .lib/%.o, $(wildcard $(addprefix $(dir)/, *.c *.cpp))))
 BOOTLOADERHEX := $(addprefix \
-	$(ARDUINODIR)/hardware/arduino/avr/bootloaders/$(BOARD_BOOTLOADER_PATH)/, \
+	$(ARDUINODIR)/hardware/arduino/$(DIR)/bootloaders/$(BOARD_BOOTLOADER_PATH)/, \
 	$(BOARD_BOOTLOADER_FILE))
 
 # avrdude confifuration
 ifeq "$(AVRDUDECONF)" ""
-ifeq "$(AVRDUDE)" "$(ARDUINODIR)/hardware/tools/avr/bin/avrdude"
-AVRDUDECONF := $(ARDUINODIR)/hardware/tools/avr/etc/avrdude.conf
+ifeq "$(AVRDUDE)" "$(ARDUINODIR)/hardware/tools/$(DIR)/bin/avrdude"
+AVRDUDECONF := $(ARDUINODIR)/hardware/tools/$(DIR)/etc/avrdude.conf
 else
 AVRDUDECONF := $(wildcard $(AVRDUDE).conf)
 endif
@@ -296,7 +305,7 @@ CPPFLAGS += -mmcu=$(BOARD_BUILD_MCU)
 CPPFLAGS += -DF_CPU=$(BOARD_BUILD_FCPU) -DARDUINO=$(ARDUINOCONST)
 CPPFLAGS += -DUSB_VID=$(BOARD_USB_VID) -DUSB_PID=$(BOARD_USB_PID)
 CPPFLAGS += -I. -Iutil -Iutility -I $(ARDUINOCOREDIR)
-CPPFLAGS += -I $(ARDUINODIR)/hardware/arduino/avr/variants/$(BOARD_BUILD_VARIANT)/
+CPPFLAGS += -I $(ARDUINODIR)/hardware/arduino/$(DIR)/variants/$(BOARD_BUILD_VARIANT)/
 CPPFLAGS += $(addprefix -I , $(LIBRARYDIRS))
 CPPDEPFLAGS = -MMD -MP -MF .dep/$<.dep
 CPPINOFLAGS := -x c++ -include $(ARDUINOCOREDIR)/Arduino.h
