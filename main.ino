@@ -1,24 +1,31 @@
+#define NDEBUG 1
+
 const int motor = 12;
 const int button = 11;
 const int moist = A0;
 
-#define DEBOUNCE_MS 30
+// anything below this means water is felt
+#define WATER 800
 
 #ifdef NDEBUG
-// 10 minutes max in production mode
-#define MAX_MOTOR_MS 1000 * 60 * 10
+// 1 minute max in production mode
+#define MAX_MOTOR_MS 1000 * 60
 #else
 // ten seconds max in debug mode
 #define MAX_MOTOR_MS 1000 * 10
 #endif
 
-#define NEAR 5
+#define DEBOUNCE_MS 30
+#define NEAR 10
 
 int done = false;
 
 void setup() {
     Serial.begin(9600);
     Serial.println("hello");
+#ifndef NDEBUG
+    Serial.println("debug version");
+#endif
     pinMode(motor, OUTPUT);
     pinMode(button, INPUT);
 }
@@ -26,11 +33,11 @@ void setup() {
 void loop() {
     static int mlast = 0;
     int mstate = analogRead(moist);
-    if (abs(mlast - mstate) > NEAR) {
+    if (abs(mlast - mstate) > NEAR && mstate < 900) {
         mlast = mstate;
         Serial.print("moist: ");
         Serial.println(mstate, DEC);
-        if (mstate < 400) {
+        if (mstate < WATER) {
             Serial.println("under water");
             done = true;
         }
@@ -44,14 +51,14 @@ void loop() {
         return;
     }
 
-    long now = millis();
+    unsigned long now = millis();
     if (now >= MAX_MOTOR_MS) {
         Serial.println("max motor ms");
         done = true;
     }
 
     static int blast = 0;
-    static long btime = 0;
+    static unsigned long btime = 0;
     int bstate = digitalRead(button);
     if (bstate != blast) {
         blast = bstate;
