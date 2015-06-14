@@ -8,11 +8,11 @@ const int moist = A0;
 #define WATER 800
 
 #ifdef NDEBUG
-// 1 minute max in production mode
-#define MAX_MOTOR_MS 1000 * 60
+// 30 seconds max in production mode
+#define MAX_MOTOR_MS ((unsigned long)1000 * 30)
 #else
 // ten seconds max in debug mode
-#define MAX_MOTOR_MS 1000 * 10
+#define MAX_MOTOR_MS ((unsigned long)1000 * 10)
 #endif
 
 #define DEBOUNCE_MS 30
