@@ -159,6 +159,11 @@
 #_______________________________________________________________________________
 #
 
+
+#SERIALSPEED=115200
+#SERIALSPEED=57600
+SERIALSPEED=9600
+
 # default arduino software directory, check software exists
 ifndef ARDUINODIR
 ARDUINODIR := $(firstword $(wildcard ~/opt/arduino /usr/share/arduino \
@@ -374,7 +379,7 @@ monitor:
 	@test 0 -eq $(SERIALDEVGUESS) || { \
 		echo "*GUESSING* at serial device:" $(SERIALDEV); \
 		echo; }
-	screen $(SERIALDEV)
+	screen $(SERIALDEV) $(SERIALSPEED)
 
 size: $(TARGET).elf
 	echo && $(AVRSIZE) --format=avr --mcu=$(BOARD_BUILD_MCU) $(TARGET).elf
