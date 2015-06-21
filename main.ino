@@ -27,6 +27,7 @@
 // -- end of config --
 
 #include "capacity.h"
+#include "temperature.h"
 #include <SoftwareSerial.h>
 
 #define NEAR 10
@@ -93,6 +94,7 @@ bool resetComm() {
     echo(100);
     esp.println("AT+CIPMODE=0");
     echo(100);
+    return true;
 }
 
 bool communicate() {
@@ -106,9 +108,24 @@ bool communicate() {
     echo(5000);
     esp.println("AT+CIPCLOSE");
     echo(2000);
+    return true;
 }
 
 void loop() {
+    float celcius;
+    float humidity;
+    readAm2302(TEMP_PIN, &celcius, &humidity);
+
+    Serial.print("temperature: ");
+    Serial.print(celcius);
+    Serial.print(" humidity: ");
+    Serial.print(humidity);
+    Serial.println("");
+
+    delay(5000);
+/*
+
+
     pump();
 
     delay(1000);
@@ -118,5 +135,6 @@ void loop() {
         communicate();
         delay(5000);
     }
+*/
 }
 
