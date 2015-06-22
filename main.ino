@@ -1,7 +1,10 @@
 #define NDEBUG 1
+#define REV 2
 
 #define SSID "SSID"
 #define PASS "PASS"
+#define HOST "192.168.1.1"
+#define PORT 6979
 
 // high up moist sensor, used as "full" indicator
 #define BUCKET_LEVEL_PIN A0
@@ -28,6 +31,8 @@
 
 #include "capacity.h"
 #include "temperature.h"
+#include "ESP8266.h"
+
 #include <SoftwareSerial.h>
 
 #define NEAR 10
@@ -105,10 +110,27 @@ unsigned long millisAtTime(int hour, int minutes) {
 }
 
 SoftwareSerial esp(ESP_TX, ESP_RX);
+ESP8266 wifi(esp);
+
+void restartWifi() {
+    delay(1000);
+    wifi.restart();
+    delay(1000);
+
+    Serial.print("wifi: esp8266 ");
+    Serial.println(wifi.getVersion().c_str());
+
+    if (wifi.joinAP(SSID, PASS)) {
+        Serial.print("wifi: ip ");
+        Serial.println(wifi.getLocalIP().c_str());
+    } else {
+        Serial.println("wifi: join error");
+    }
+    wifi.disableMUX();
+}
 
 void setup() {
     Serial.begin(9600);
-    esp.begin(9600);
 
     pinMode(PUMP_PIN, OUTPUT);
     digitalWrite(PUMP_PIN, LOW);
@@ -116,7 +138,10 @@ void setup() {
     pinMode(13, OUTPUT);
     digitalWrite(13, LOW);
 
-    Serial.println("hello");
+    Serial.print("balcony ");
+    Serial.println(REV);
+
+    restartWifi();
 }
 
 // will pump up water, until water level is reached
@@ -183,41 +208,51 @@ void service_temperature() {
     }
 }
 
-void echo(int millis) {
-    for (int i = 0; i < millis; i++) {
-        if (esp.available()) Serial.write(esp.read());
-        else delay(1);
+void service_data() {
+    //if (timeDelta(millis(), state.temperature.last_time) < 60000L) return;
+
+    if (!wifi.createTCP(HOST, PORT)) {
+        Serial.println("wifi: tcp create error");
+        delay(1000);
+        restartWifi();
+        return;
     }
-}
 
-bool resetComm() {
-    esp.println("AT+RST");
-    echo(1600);
-    esp.println("ATE0");
-    echo(100);
-    esp.println("AT+CWMODE=1");
-    echo(100);
-    esp.println("AT+CWJAP=\"" SSID "\",\"" PASS "\"");
-    echo(9000);
-    esp.println("AT+CIPMUX=0");
-    echo(100);
-    esp.println("AT+CIPMODE=0");
-    echo(100);
-    return true;
-}
+    char buf[16];
+    String data;
 
-bool communicate() {
-    Serial.println("comm init ...");
-    esp.flush();
-    esp.println("AT+CIPSTART=\"TCP\",\"192.168.87.31\",9999");
-    echo(2000);
-    esp.println("AT+CIPSEND=4");
-    echo(200);
-    esp.print("helo");
-    echo(5000);
-    esp.println("AT+CIPCLOSE");
-    echo(2000);
-    return true;
+    data += "{id=\"balcony\",pump={dur=";
+    data += state.pump.duration;
+    data += ",last=";
+    data += state.pump.last_time / 1000L;
+    data += ",next=";
+    data += state.pump.next_time / 1000L;
+
+    data += "},temp={last=";
+    data += state.temperature.last_time / 1000L;
+    data += ",celcius=",
+    dtostrf(state.temperature.celcius, 0, 2, buf); data += buf;
+    data += ",humidity=",
+    dtostrf(state.temperature.humidity, 0, 2, buf); data += buf;
+    data += "}}";
+
+    wifi.send((const uint8_t*)data.c_str(), data.length());
+
+    int len = wifi.recv((uint8_t*)buf, sizeof(buf), 5000);
+    if (len > 0) {
+        int hour = (buf[0] - '0') * 10 + buf[1] - '0';
+        int minute = (buf[2] - '0') * 10 + buf[3] - '0';
+        if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
+            setTime((hour * 60L + minute) * 60L);
+        }
+    }
+
+    if (!wifi.releaseTCP()) {
+        Serial.println("wifi: tcp release error");
+        delay(1000);
+        restartWifi();
+        return;
+    }
 }
 
 void loop() {
@@ -227,7 +262,6 @@ void loop() {
         int minute = (Serial.read() - '0') * 10 + Serial.read() - '0';
         if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
             setTime((hour * 60L + minute) * 60L);
-            state.pump.next_time = state.pump.last_time;
         }
     }
 
@@ -261,5 +295,6 @@ void loop() {
     updateTime();
     service_pump();
     service_temperature();
+    service_data();
 }
 
