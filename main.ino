@@ -1,9 +1,29 @@
-#define NDEBUG 1
-#define REV 2
+// author: Onne Gorter
+// license: CC0 http://creativecommons.org/publicdomain/zero/1.0/
+
+#include "Time.h"
+
+struct state {
+    struct pump {
+        time_t next_time;
+        time_t last_time;
+        int duration;
+    } pump;
+    struct temperature {
+        time_t last_time;
+        float celcius;
+        float humidity;
+    } temperature;
+    struct wifi {
+        time_t last_time;
+        bool started;
+        bool connected;
+    } wifi;
+} state;
 
 #define SSID "SSID"
 #define PASS "PASS"
-#define HOST "192.168.1.1"
+#define HOST "192.168.87.101"
 #define PORT 6979
 
 // high up moist sensor, used as "full" indicator
@@ -26,111 +46,28 @@
 // esp8266
 #define ESP_RX 2
 #define ESP_TX 3
+#define ESP_RESET 4
+
+#define NDEBUG 1
+#define REV 3
 
 // -- end of config --
 
 #include "capacity.h"
 #include "temperature.h"
 #include "ESP8266.h"
-
 #include <SoftwareSerial.h>
 
 #define NEAR 10
-#define SECONDS_PER_DAY 86400L
-
-#define STR(x) STR2(x)
-#define STR2(x) #x
-#define assert(x) do { if (!x) { \
-Serial.println("Assertion Failed: " __FILE__ ":" STR(__LINE__) ": " #x); \
-}} while (0)
-
-struct state {
-    struct time {
-        bool set;
-        unsigned long since_midnight;
-        unsigned long last_update;
-    } time;
-    struct pump {
-        unsigned long next_time;
-        unsigned long last_time;
-        int duration;
-    } pump;
-    struct temperature {
-        unsigned long last_time;
-        float celcius;
-        float humidity;
-    } temperature;
-    struct comm {
-        unsigned long last_time;
-    } comm;
-} state;
-
-// time management
-
-void setTime(unsigned long time) {
-    state.time.since_midnight = time % SECONDS_PER_DAY;
-    state.time.last_update = millis();
-    state.time.set = true;
-}
-
-void updateTime() {
-    unsigned long now = millis();
-    unsigned long delta = now - state.time.last_update;
-    if (delta >= 1000) {
-        state.time.since_midnight += delta / 1000;
-        if (state.time.since_midnight > SECONDS_PER_DAY) {
-            state.time.since_midnight -= SECONDS_PER_DAY;
-        }
-        state.time.last_update = now / 1000 * 1000;
-    }
-}
-
-unsigned long timeDelta(unsigned long t1, unsigned long t2) {
-    return t1 - t2;
-}
-
-// returns true when t1 is after reference time
-bool isAfter(unsigned long t1, unsigned long ref) {
-    unsigned long delta = timeDelta(t1, ref);
-    return delta != 0 && delta < 1209600000L; // 14 days
-}
-
-// get a future millis timestamp for a point in the day
-// will always returns something between 0 - 24 hours from now
-unsigned long millisAtTime(int hour, int minutes) {
-    unsigned long seconds = (hour * 60L + minutes) * 60L;
-    if (seconds < state.time.since_midnight) seconds += SECONDS_PER_DAY;
-
-    unsigned long millis_till_now = state.time.since_midnight * 1000L;
-    unsigned long now = millis();
-    unsigned long future = now - millis_till_now + seconds * 1000L;
-
-    assert(isAfter(future, now));
-    return future;
-}
 
 SoftwareSerial esp(ESP_TX, ESP_RX);
 ESP8266 wifi(esp);
-
-void restartWifi() {
-    delay(1000);
-    wifi.restart();
-    delay(1000);
-
-    Serial.print("wifi: esp8266 ");
-    Serial.println(wifi.getVersion().c_str());
-
-    if (wifi.joinAP(SSID, PASS)) {
-        Serial.print("wifi: ip ");
-        Serial.println(wifi.getLocalIP().c_str());
-    } else {
-        Serial.println("wifi: join error");
-    }
-    wifi.disableMUX();
-}
+bool wifi_error = false;
 
 void setup() {
     Serial.begin(9600);
+
+    pinMode(ESP_RESET, INPUT);
 
     pinMode(PUMP_PIN, OUTPUT);
     digitalWrite(PUMP_PIN, LOW);
@@ -140,8 +77,6 @@ void setup() {
 
     Serial.print("balcony ");
     Serial.println(REV);
-
-    restartWifi();
 }
 
 // will pump up water, until water level is reached
@@ -179,23 +114,22 @@ void pump() {
     digitalWrite(PUMP_PIN, LOW);
 }
 
+#define midnight previousMidnight
+#define hours(H) ((H) * SECS_PER_HOUR)
+#define minutes(M) ((M) * SECS_PER_MIN)
 void service_pump() {
-    if (!state.time.set) return;
+    if (timeStatus() == timeNotSet) return;
 
-    if (!isAfter(state.pump.next_time, state.pump.last_time)) {
-        state.pump.next_time = millisAtTime(10, 15);
-        assert(isAfter(state.pump.next_time, state.pump.last_time));
+    if (state.pump.next_time <= state.pump.last_time) {
+        state.pump.next_time = midnight(now()) + hours(10) + minutes(15);
+        if (state.pump.next_time < now()) state.pump.next_time += hours(24);
     }
 
-    if (isAfter(millis(), state.pump.next_time)) {
-        pump();
-        state.pump.next_time = millisAtTime(10, 15);
-        assert(!isAfter(state.pump.next_time, state.pump.last_time));
-    }
+    if (state.pump.next_time < now()) pump();
 }
 
 void service_temperature() {
-    if (timeDelta(millis(), state.temperature.last_time) < 5000L) return;
+    if (state.temperature.last_time + 5 > now()) return;
 
     float celcius;
     float humidity;
@@ -204,23 +138,54 @@ void service_temperature() {
     if (celcius && humidity) {
         state.temperature.celcius = celcius;
         state.temperature.humidity = humidity;
-        state.temperature.last_time = millis();
+        state.temperature.last_time = now();
     }
 }
 
-void service_data() {
-    //if (timeDelta(millis(), state.temperature.last_time) < 60000L) return;
+bool start_wifi() {
+    digitalWrite(ESP_RESET, LOW);
+    pinMode(ESP_RESET, OUTPUT);
+    delay(10);
+    pinMode(ESP_RESET, INPUT);
+    delay(2000);
+
+    Serial.print("wifi: esp8266 ");
+    Serial.println(wifi.getVersion().c_str());
+
+    if (!wifi.joinAP(SSID, PASS)) {
+        Serial.println("wifi: join error");
+        return false;
+    }
+    if (!wifi.disableMUX()) {
+        Serial.println("wifi: mux error");
+        return false;
+    }
+
+    Serial.print("wifi: ip ");
+    Serial.println(wifi.getLocalIP().c_str());
+
+    state.wifi.started = true;
+    return true;
+}
+
+bool connect_wifi() {
+    if (!state.wifi.started) {
+        if (!start_wifi()) return false;
+    }
 
     if (!wifi.createTCP(HOST, PORT)) {
         Serial.println("wifi: tcp create error");
-        delay(1000);
-        restartWifi();
-        return;
+        state.wifi.started = false;
+        return false;
     }
 
-    char buf[16];
-    String data;
+    state.wifi.connected = true;
+    return true;
+}
 
+void send_data() {
+    char buf[20];
+    String data;
     data += "{id=\"balcony\",pump={dur=";
     data += state.pump.duration;
     data += ",last=";
@@ -234,67 +199,82 @@ void service_data() {
     dtostrf(state.temperature.celcius, 0, 2, buf); data += buf;
     data += ",humidity=",
     dtostrf(state.temperature.humidity, 0, 2, buf); data += buf;
-    data += "}}";
+    data += "}}\n";
 
-    wifi.send((const uint8_t*)data.c_str(), data.length());
+    if (!wifi.send((const uint8_t*)data.c_str(), data.length())) {
+        Serial.println("wifi: error send");
+        state.wifi.started = false;
+        state.wifi.connected = false;
+    }
+    delay(1000);
+}
 
-    int len = wifi.recv((uint8_t*)buf, sizeof(buf), 5000);
-    if (len > 0) {
-        int hour = (buf[0] - '0') * 10 + buf[1] - '0';
-        int minute = (buf[2] - '0') * 10 + buf[3] - '0';
-        if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
-            setTime((hour * 60L + minute) * 60L);
-        }
+void service_wifi() {
+    if (!state.wifi.connected) {
+        if (!connect_wifi()) return;
     }
 
-    if (!wifi.releaseTCP()) {
-        Serial.println("wifi: tcp release error");
-        delay(1000);
-        restartWifi();
-        return;
+    if (timeStatus() == timeNotSet) {
+        Serial.println("waiting for time");
+        if (!wifi.send((const uint8_t*)"\n", 1)) {
+            Serial.println("wifi: error send");
+            state.wifi.started = false;
+            state.wifi.connected = false;
+            return;
+        }
+    } else {
+        send_data();
+    }
+
+    char buf[100];
+    int len = wifi.recv((uint8_t*)buf, sizeof(buf), 1000);
+    if (len > 0) {
+        char* endp = 0;
+        time_t t = strtoul(buf, &endp, 10);
+        if (endp && endp > buf) {
+            setTime(t);
+            Serial.print("set time: ");
+            Serial.println(now());
+        } else {
+            Serial.print("received: ");
+            Serial.println(buf);
+        }
     }
 }
 
 void loop() {
-    // read time from serial in HHMM
-    if (Serial.available() >= 4) {
-        int hour = (Serial.read() - '0') * 10 + Serial.read() - '0';
-        int minute = (Serial.read() - '0') * 10 + Serial.read() - '0';
-        if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
-            setTime((hour * 60L + minute) * 60L);
-        }
-    }
-
-    static unsigned long last = 0;
-    if (timeDelta(millis(), last) > 5000L) {
+    static unsigned long last = -5001UL;
+    if ((unsigned long)(millis() - last) > 5000UL) {
         last = millis();
-        int hour = state.time.since_midnight / 3600L;
-        int minute = state.time.since_midnight / 60L % 60L;
-        Serial.print(hour / 10);
-        Serial.print(hour % 10);
-        Serial.print(minute / 10);
-        Serial.print(minute % 10);
-        Serial.print(" ");
-        Serial.println(last);
+        time_t t = now();
+        char buf[20];
+        snprintf(buf, sizeof(buf), "%d-%02d-%02dT%02d:%02d:%02d",
+            year(t), month(t), day(t), hour(t), minute(t), second(t));
+        Serial.println(buf);
 
         Serial.print("pump: ");
         Serial.print(state.pump.duration);
         Serial.print(" next: ");
-        Serial.print(timeDelta(state.pump.next_time, last) / 1000L);
+        snprintf(buf, sizeof(buf), "%02d:%02d",
+            hour(state.pump.next_time), minute(state.pump.next_time));
+        Serial.print(buf);
         Serial.print(" last: ");
-        Serial.println(timeDelta(last, state.pump.last_time) / 1000L);
+        snprintf(buf, sizeof(buf), "%02d:%02d",
+            hour(state.pump.last_time), minute(state.pump.last_time));
+        Serial.println(buf);
 
         Serial.print("temperature: ");
         Serial.print(state.temperature.celcius);
         Serial.print(" humidity: ");
         Serial.print(state.temperature.humidity);
         Serial.print(" last: ");
-        Serial.println(timeDelta(last, state.temperature.last_time) / 1000L);
+        snprintf(buf, sizeof(buf), "%02d:%02d",
+            hour(state.temperature.last_time), minute(state.temperature.last_time));
+        Serial.println(buf);
     }
 
-    updateTime();
-    service_pump();
     service_temperature();
-    service_data();
+    service_pump();
+    service_wifi();
 }
 
