@@ -216,20 +216,15 @@ void service_wifi() {
         if (!connect_wifi()) return;
     }
 
-    if (timeStatus() == timeNotSet) {
-        Serial.println("waiting for time");
-        if (!wifi.send((const uint8_t*)"\n", 1)) {
-            Serial.println("wifi: error send");
-            state.wifi.started = false;
-            state.wifi.connected = false;
-            return;
-        }
-    } else {
-        send_data();
-    }
-
+    // TODO this will receive most commands, but
+    // if other side sends while we are in send_data, will will not see it
+    // requires a much more advanced ESP8266 code ...
     char buf[100];
-    int len = wifi.recv((uint8_t*)buf, sizeof(buf), 1000);
+    int len = wifi.recv((uint8_t*)buf, sizeof(buf), 100);
+    if (len < 0) {
+        state.wifi.started = state.wifi.connected = false;
+        return;
+    }
     if (len > 0) {
         char* endp = 0;
         time_t t = strtoul(buf, &endp, 10);
@@ -242,6 +237,8 @@ void service_wifi() {
             Serial.println(buf);
         }
     }
+
+    if (timeStatus() != timeNotSet) send_data();
 }
 
 void loop() {
