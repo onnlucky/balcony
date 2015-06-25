@@ -75,12 +75,13 @@ void setup() {
     pinMode(13, OUTPUT);
     digitalWrite(13, LOW);
 
-    Serial.print("balcony ");
+    Serial.print("balcony rev ");
     Serial.println(REV);
 }
 
 // will pump up water, until water level is reached
 void pump() {
+    state.pump.last_time = now();
     unsigned long start = millis();
 
     Serial.println("pump on");
@@ -106,8 +107,7 @@ void pump() {
         digitalWrite(PUMP_PIN, HIGH);
     }
 
-    state.pump.last_time = start;
-    state.pump.duration = millis() - start;
+    state.pump.duration = now() - state.pump.last_time;
 
     Serial.println("pump off");
     digitalWrite(13, LOW);
@@ -189,12 +189,12 @@ void send_data() {
     data += "{id=\"balcony\",pump={dur=";
     data += state.pump.duration;
     data += ",last=";
-    data += state.pump.last_time / 1000L;
+    data += state.pump.last_time;
     data += ",next=";
-    data += state.pump.next_time / 1000L;
+    data += state.pump.next_time;
 
     data += "},temp={last=";
-    data += state.temperature.last_time / 1000L;
+    data += state.temperature.last_time;
     data += ",celcius=",
     dtostrf(state.temperature.celcius, 0, 2, buf); data += buf;
     data += ",humidity=",
@@ -206,10 +206,12 @@ void send_data() {
         state.wifi.started = false;
         state.wifi.connected = false;
     }
-    delay(1000);
+    state.wifi.last_time = now();
 }
 
 void service_wifi() {
+    if (state.wifi.last_time + 5 > now()) return;
+
     if (!state.wifi.connected) {
         if (!connect_wifi()) return;
     }
