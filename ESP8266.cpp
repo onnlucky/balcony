@@ -464,6 +464,7 @@ uint32_t ESP8266::recvPkg(uint8_t *buffer, uint32_t buffer_size, uint32_t *data_
             data += a;
         }
 
+        // +IPD does not occur outside of receiving data
         index_PIPDcomma = data.indexOf("+IPD,");
         if (index_PIPDcomma != -1) {
             index_colon = data.indexOf(':', index_PIPDcomma + 5);
@@ -473,16 +474,16 @@ uint32_t ESP8266::recvPkg(uint8_t *buffer, uint32_t buffer_size, uint32_t *data_
                 if (index_comma != -1 && index_comma < index_colon) {
                     id = data.substring(index_PIPDcomma + 5, index_comma).toInt();
                     if (id < 0 || id > 4) {
-                        return 0;
+                        return -1;
                     }
                     len = data.substring(index_comma + 1, index_colon).toInt();
                     if (len <= 0) {
-                        return 0;
+                        return -1;
                     }
                 } else { /* +IPD,len:data */
                     len = data.substring(index_PIPDcomma + 5, index_colon).toInt();
                     if (len <= 0) {
-                        return 0;
+                        return -1;
                     }
                 }
                 has_data = true;
@@ -491,7 +492,9 @@ uint32_t ESP8266::recvPkg(uint8_t *buffer, uint32_t buffer_size, uint32_t *data_
         }
     }
 
-    if (has_data) {
+    if (!has_data) {
+        return 0;
+    } else {
         i = 0;
         ret = (uint32_t)len > buffer_size ? buffer_size : len;
         start = millis();
@@ -512,7 +515,7 @@ uint32_t ESP8266::recvPkg(uint8_t *buffer, uint32_t buffer_size, uint32_t *data_
             }
         }
     }
-    return 0;
+    return -1;
 }
 
 void ESP8266::rx_empty(void)
@@ -532,12 +535,9 @@ String ESP8266::recvString(String target, uint32_t timeout)
             a = m_puart->read();
             if(a == '\0') continue;
             data += a;
-        }
-        if (data.indexOf(target) != -1) {
-            break;
+            if (data.endsWith(target)) return data;
         }
     }
-
     return data;
 }
 
@@ -551,11 +551,8 @@ String ESP8266::recvString(String target1, String target2, uint32_t timeout)
             a = m_puart->read();
             if(a == '\0') continue;
             data += a;
-        }
-        if (data.indexOf(target1) != -1) {
-            break;
-        } else if (data.indexOf(target2) != -1) {
-            break;
+            if (data.endsWith(target1)) return data;
+            if (data.endsWith(target2)) return data;
         }
     }
     return data;
@@ -571,13 +568,9 @@ String ESP8266::recvString(String target1, String target2, String target3, uint3
             a = m_puart->read();
             if(a == '\0') continue;
             data += a;
-        }
-        if (data.indexOf(target1) != -1) {
-            break;
-        } else if (data.indexOf(target2) != -1) {
-            break;
-        } else if (data.indexOf(target3) != -1) {
-            break;
+            if (data.endsWith(target1)) return data;
+            if (data.endsWith(target2)) return data;
+            if (data.endsWith(target3)) return data;
         }
     }
     return data;
@@ -587,17 +580,14 @@ bool ESP8266::recvFind(String target, uint32_t timeout)
 {
     String data_tmp;
     data_tmp = recvString(target, timeout);
-    if (data_tmp.indexOf(target) != -1) {
-        return true;
-    }
-    return false;
+    return data_tmp.endsWith(target);
 }
 
 bool ESP8266::recvFindAndFilter(String target, String begin, String end, String &data, uint32_t timeout)
 {
     String data_tmp;
     data_tmp = recvString(target, timeout);
-    if (data_tmp.indexOf(target) != -1) {
+    if (data_tmp.endsWith(target)) {
         int32_t index1 = data_tmp.indexOf(begin);
         int32_t index2 = data_tmp.indexOf(end);
         if (index1 != -1 && index2 != -1) {
@@ -1156,8 +1146,10 @@ bool ESP8266::sATCIPSTARTSingle(String type, String addr, uint32_t port)
     m_puart->print(F("\","));
     m_puart->println(port);
 
-    data = recvString("OK", "ERROR", "ALREADY CONNECT", 10000);
-    if (data.indexOf("OK") != -1 || data.indexOf("ALREADY CONNECT") != -1) {
+    // for TCP, Linked, +IPD:..., OK is possible, so we look for Linked, not OK
+    const char* ok = type[0] == 'T'? "Linked":"OK";
+    data = recvString(ok, "ERROR", "ALREADY CONNECT", 10000);
+    if (data.indexOf(ok) != -1 || data.indexOf("ALREADY CONNECT") != -1) {
         return true;
     }
     return false;
