@@ -29,7 +29,7 @@
 #define NL_ERROR   n(0x4F520D0AUL) // "OR\r\n"
 #define NL_CONNECT n(0x43540D0AUL) // "CT\r\n"
 
-// this n function forces to keep these numbers in .text section, not sure why
+// this n function forces to keep these numbers in .text section even when compiled with -Os
 static inline uint32_t n(uint32_t n) { return n; }
 
 
@@ -88,11 +88,11 @@ int ESP8266::waitfor(const uint32_t* needles, int nlen, uint32_t timeout, char p
 
 #ifdef DEBUG
     if (timeout) {
-        Serial.print("waitfor: ");
+        Serial.print(F("waitfor: "));
         Serial.print(nlen);
-        Serial.print(" ");
+        Serial.print(F(" "));
         Serial.print(prompt);
-        Serial.print(" t=");
+        Serial.print(F(" t="));
         Serial.println(timeout);
     }
 #endif
@@ -192,7 +192,7 @@ int ESP8266::joinAP(const char* ssid, const char* pass) {
     espconn->print(ssid);
     espconn->print(F("\",\""));
     espconn->print(pass);
-    espconn->println("\"");
+    espconn->println(F("\""));
     return joinAP2();
 }
 
@@ -202,7 +202,7 @@ int ESP8266::joinAP(Fstr* ssid, Fstr* pass) {
     espconn->print(ssid);
     espconn->print(F("\",\""));
     espconn->print(pass);
-    espconn->println("\"");
+    espconn->println(F("\""));
     return joinAP2();
 }
 
