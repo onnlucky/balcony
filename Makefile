@@ -340,7 +340,7 @@ all: target
 
 target: $(TARGET).hex
 
-run: upload monitor
+run: size upload monitor
 
 upload: target
 	@echo "\nUploading to board..."

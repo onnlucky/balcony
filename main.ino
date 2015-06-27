@@ -87,12 +87,12 @@ void pump() {
     state.pump.last_time = now();
     unsigned long start = millis();
 
-    Serial.println("pump on");
+    Serial.println(F("pump on"));
     while (true) {
         unsigned long now = millis();
 
         if ((unsigned long)(now - start) > MAX_PUMP_MS) {
-            Serial.println("max pump ms");
+            Serial.println(F("max pump ms"));
             break;
         }
 
@@ -101,7 +101,7 @@ void pump() {
         if (abs(mlast - mstate) > NEAR) {
             mlast = mstate;
             if (mstate < BUCKET_LEVEL_REACHED) {
-                Serial.println("bucket full");
+                Serial.println(F("bucket full"));
                 break;
             }
         }
@@ -112,7 +112,7 @@ void pump() {
 
     state.pump.duration = now() - state.pump.last_time;
 
-    Serial.println("pump off");
+    Serial.println(F("pump off"));
     digitalWrite(13, LOW);
     digitalWrite(PUMP_PIN, LOW);
 }
@@ -147,24 +147,28 @@ void service_temperature() {
 
 bool start_wifi() {
     if (!wifi.hardwareReset()) {
-        Serial.println("wifi: reset error");
+        Serial.println(F("wifi: reset error"));
         return false;
     }
 
-    Serial.print("wifi: esp8266 ");
-    //Serial.println(wifi.getVersion().c_str());
+    if (!wifi.getVersion((char*)packetbuffer, sizeof(packetbuffer))) {
+        Serial.println(F("wifi: version error"));
+        return false;
+    }
+    Serial.print(F("wifi: esp8266 "));
+    Serial.println((const char*)packetbuffer);
 
     if (!wifi.joinAP(SSID, PASS)) {
-        Serial.println("wifi: join error");
+        Serial.println(F("wifi: join error"));
         return false;
     }
-    //if (!wifi.disableMUX()) {
-    //    Serial.println("wifi: mux error");
-    //    return false;
-    //}
 
-    Serial.print("wifi: ip ");
-    //Serial.println(wifi.getLocalIP().c_str());
+    if (!wifi.getIP((char*)packetbuffer, sizeof(packetbuffer))) {
+        Serial.println(F("wifi: ip error"));
+        return false;
+    }
+    Serial.print(F("wifi: ip "));
+    Serial.println((const char*)packetbuffer);
 
     state.wifi.started = true;
     return true;
@@ -177,7 +181,7 @@ bool connect_wifi() {
 
     wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
     if (!wifi.tcpOpen(HOST, PORT)) {
-        Serial.println("wifi: tcp create error");
+        Serial.println(F("wifi: tcp open error"));
         state.wifi.started = false;
         return false;
     }
@@ -231,10 +235,10 @@ void service_wifi() {
         time_t t = strtoul(buf, &endp, 10);
         if (endp && endp > buf) {
             setTime(t);
-            Serial.print("set time: ");
+            Serial.print(F("set time: "));
             Serial.println(now());
         } else {
-            Serial.print("received: ");
+            Serial.print(F("received: "));
             Serial.println(buf);
         }
         wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
@@ -253,22 +257,22 @@ void loop() {
             year(t), month(t), day(t), hour(t), minute(t), second(t));
         Serial.println(buf);
 
-        Serial.print("pump: ");
+        Serial.print(F("pump: "));
         Serial.print(state.pump.duration);
-        Serial.print(" next: ");
+        Serial.print(F(" next: "));
         snprintf(buf, sizeof(buf), "%02d:%02d",
             hour(state.pump.next_time), minute(state.pump.next_time));
         Serial.print(buf);
-        Serial.print(" last: ");
+        Serial.print(F(" last: "));
         snprintf(buf, sizeof(buf), "%02d:%02d",
             hour(state.pump.last_time), minute(state.pump.last_time));
         Serial.println(buf);
 
-        Serial.print("temperature: ");
+        Serial.print(F("temperature: "));
         Serial.print(state.temperature.celcius);
-        Serial.print(" humidity: ");
+        Serial.print(F(" humidity: "));
         Serial.print(state.temperature.humidity);
-        Serial.print(" last: ");
+        Serial.print(F(" last: "));
         snprintf(buf, sizeof(buf), "%02d:%02d",
             hour(state.temperature.last_time), minute(state.temperature.last_time));
         Serial.println(buf);
