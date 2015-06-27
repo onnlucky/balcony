@@ -9,6 +9,14 @@ struct state {
         time_t last_time;
         int duration;
     } pump;
+    struct bucket {
+        time_t last_time;
+        int level;
+    } bucket;
+    struct main {
+        time_t last_time;
+        int level;
+    } main;
     struct temperature {
         time_t last_time;
         float celcius;
@@ -23,7 +31,7 @@ struct state {
 
 #define SSID "SSID"
 #define PASS "PASS"
-#define HOST "192.168.87.101"
+#define HOST F("192.168.87.101")
 #define PORT 6979
 
 // high up moist sensor, used as "full" indicator
@@ -160,6 +168,18 @@ void service_temperature() {
     }
 }
 
+void service_bucket() {
+    if (state.bucket.last_time + 5 > now()) return;
+    state.bucket.level = analogRead(BUCKET_LEVEL_PIN);
+    state.bucket.last_time = now();
+}
+
+void service_main() {
+    if (state.main.last_time + 5 > now()) return;
+    state.main.level = readCapacity2(MAIN_LEVEL_PIN1, MAIN_LEVEL_PIN2);
+    state.main.last_time = now();
+}
+
 bool start_wifi() {
     if (!wifi.hardwareReset()) {
         Serial.println(F("wifi: reset error"));
@@ -206,24 +226,45 @@ bool connect_wifi() {
 }
 
 void send_data() {
-    char buf[20];
-    String data;
-    data += "{id=\"balcony\",pump={dur=";
-    data += state.pump.duration;
-    data += ",last=";
-    data += state.pump.last_time;
-    data += ",next=";
-    data += state.pump.next_time;
+    char buf[200];
 
-    data += "},temp={last=";
-    data += state.temperature.last_time;
-    data += ",celcius=",
-    dtostrf(state.temperature.celcius, 0, 2, buf); data += buf;
-    data += ",humidity=",
-    dtostrf(state.temperature.humidity, 0, 2, buf); data += buf;
-    data += "}}\n";
+    time_t t = now();
+    snprintf(buf, sizeof(buf), "%d-%02d-%02dT%02d:%02d:%02d", year(t), month(t), day(t), hour(t), minute(t), second(t));
+    Serial.println(buf);
 
-    if (!wifi.tcpSend((const uint8_t*)data.c_str(), data.length())) {
+    static const char fmt[] PROGMEM =
+        "{id=\"balcony\",r=%d,"
+        "pump={duration=%d,next=%lu,last=%lu},"
+        "bucket={level=%d,last=%lu},"
+        "main={level=%d,last=%lu},"
+        "temp={celcius=%s,humidity=%s,last=%lu}}\n";
+
+    // %f format only works when adding this to gcc: -Wl,-u,vfprintf -lprintf_flt -lm
+    char cbuf[14];
+    char hbuf[14];
+    dtostrf(state.temperature.celcius, 0, 2, cbuf);
+    dtostrf(state.temperature.humidity, 0, 2, hbuf);
+
+    int len = snprintf_P(buf, sizeof(buf), fmt,
+        REV,
+        state.pump.duration, state.pump.next_time, state.pump.last_time,
+        state.bucket.level, state.bucket.last_time,
+        state.main.level, state.bucket.last_time,
+        cbuf, hbuf, state.temperature.last_time);
+
+    if ((unsigned)len >= sizeof(buf)) {
+        Serial.print("wifi: error buffer too small: ");
+        Serial.println(len);
+        return;
+    }
+
+
+    Serial.print(buf);
+
+    if (timeStatus() == timeNotSet) return;
+    if (!state.wifi.connected) return;
+
+    if (!wifi.tcpSend((const uint8_t*)buf, len)) {
         Serial.println("wifi: error send");
         state.wifi.started = false;
         state.wifi.connected = false;
@@ -232,8 +273,6 @@ void send_data() {
 }
 
 void service_wifi() {
-    if (state.wifi.last_time + 5 > now()) return;
-
     if (!state.wifi.connected) {
         if (!connect_wifi()) return;
     }
@@ -276,39 +315,19 @@ void service_wifi() {
         }
         wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
     }
-
-    if (timeStatus() != timeNotSet) send_data();
 }
 
 void loop() {
-    static unsigned long last = -5001UL;
-    if ((unsigned long)(millis() - last) > 5000UL) {
-        last = millis();
-        time_t t = now();
-        char buf[20];
-        snprintf(buf, sizeof(buf), "%d-%02d-%02dT%02d:%02d:%02d", year(t), month(t), day(t), hour(t), minute(t), second(t));
-        Serial.println(buf);
-
-        Serial.print(F("pump: "));
-        Serial.print(state.pump.duration);
-        Serial.print(F(" next: "));
-        snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.next_time), minute(state.pump.next_time));
-        Serial.print(buf);
-        Serial.print(F(" last: "));
-        snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.last_time), minute(state.pump.last_time));
-        Serial.println(buf);
-
-        Serial.print(F("temperature: "));
-        Serial.print(state.temperature.celcius);
-        Serial.print(F(" humidity: "));
-        Serial.print(state.temperature.humidity);
-        Serial.print(F(" last: "));
-        snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.temperature.last_time), minute(state.temperature.last_time));
-        Serial.println(buf);
-    }
-
     service_temperature();
+    service_bucket();
+    service_main();
     service_pump();
     service_wifi();
+
+    static unsigned long last;
+    if ((unsigned long)(millis() - last) > 5000UL) {
+        last = millis();
+        send_data();
+    }
 }
 
