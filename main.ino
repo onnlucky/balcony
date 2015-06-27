@@ -104,15 +104,16 @@ void setup() {
 }
 
 // will pump up water, until water level is reached
+// TOOD either process wifi events, or make this cooperative
 void pump() {
     state.pump.last_time = now();
     unsigned long start = millis();
 
     Serial.println(F("pump on"));
     while (true) {
-        unsigned long now = millis();
+        unsigned long ms = millis();
 
-        if ((unsigned long)(now - start) > MAX_PUMP_MS) {
+        if ((unsigned long)(ms - start) > MAX_PUMP_MS) {
             Serial.println(F("max pump ms"));
             break;
         }
@@ -123,6 +124,8 @@ void pump() {
             mlast = mstate;
             if (mstate < BUCKET_LEVEL_REACHED) {
                 Serial.println(F("bucket full"));
+                state.bucket.level = mstate;
+                state.bucket.last_time = now();
                 break;
             }
         }
@@ -318,11 +321,13 @@ void service_wifi() {
 }
 
 void loop() {
+    // first, so measuring sensors etc can use serial buffer
+    service_wifi();
+
     service_temperature();
     service_bucket();
     service_main();
     service_pump();
-    service_wifi();
 
     static unsigned long last;
     if ((unsigned long)(millis() - last) > 5000UL) {
