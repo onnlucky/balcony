@@ -73,8 +73,6 @@ SoftwareSerial esp(ESP_TX, ESP_RX);
 ESP8266 wifi(esp, ESP_RESET);
 uint8_t packetbuffer[32];
 
-bool wifi_error = false;
-
 static inline uint8_t checksum(uint32_t from) {
     return (from >> 24) + (from >> 16) + (from >> 8) + from;
 }
@@ -95,9 +93,9 @@ void setup() {
     uint8_t check = eeprom_read_byte((uint8_t*)4);
     if (checksum(last_time) == check) state.pump.last_time = last_time;
 
-    Serial.print("balcony rev ");
+    Serial.print(F("balcony rev "));
     Serial.print(REV);
-    Serial.print(" pump.last_time: ");
+    Serial.print(F(" pump.last_time: "));
     char buf[20];
     snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.last_time), minute(state.pump.last_time));
     Serial.println(buf);
@@ -184,25 +182,30 @@ void service_main() {
 }
 
 bool start_wifi() {
-    if (!wifi.hardwareReset()) {
-        Serial.println(F("wifi: reset error"));
+    int s;
+    if ((s = wifi.hardwareReset())) {
+        Serial.print(F("wifi: reset error "));
+        Serial.println(s);
         return false;
     }
 
-    if (!wifi.getVersion((char*)packetbuffer, sizeof(packetbuffer))) {
-        Serial.println(F("wifi: version error"));
+    if ((s = wifi.getVersion((char*)packetbuffer, sizeof(packetbuffer)))) {
+        Serial.print(F("wifi: version error "));
+        Serial.println(s);
         return false;
     }
     Serial.print(F("wifi: esp8266 "));
     Serial.println((const char*)packetbuffer);
 
-    if (!wifi.joinAP(SSID, PASS)) {
-        Serial.println(F("wifi: join error"));
+    if ((s = wifi.joinAP(SSID, PASS))) {
+        Serial.print(F("wifi: join error "));
+        Serial.println(s);
         return false;
     }
 
-    if (!wifi.getIP((char*)packetbuffer, sizeof(packetbuffer))) {
-        Serial.println(F("wifi: ip error"));
+    if ((s = wifi.getIP((char*)packetbuffer, sizeof(packetbuffer)))) {
+        Serial.print(F("wifi: ip error "));
+        Serial.println(s);
         return false;
     }
     Serial.print(F("wifi: ip "));
@@ -217,9 +220,11 @@ bool connect_wifi() {
         if (!start_wifi()) return false;
     }
 
+    int s;
     wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
-    if (!wifi.tcpOpen(HOST, PORT)) {
-        Serial.println(F("wifi: tcp open error"));
+    if ((s = wifi.tcpOpen(HOST, PORT))) {
+        Serial.print(F("wifi: tcp open error "));
+        Serial.println(s);
         state.wifi.started = false;
         return false;
     }
@@ -256,19 +261,20 @@ void send_data() {
         cbuf, hbuf, state.temperature.last_time);
 
     if ((unsigned)len >= sizeof(buf)) {
-        Serial.print("wifi: error buffer too small: ");
+        Serial.print(F("wifi: error buffer too small: "));
         Serial.println(len);
         return;
     }
-
 
     Serial.print(buf);
 
     if (timeStatus() == timeNotSet) return;
     if (!state.wifi.connected) return;
 
-    if (!wifi.tcpSend((const uint8_t*)buf, len)) {
-        Serial.println("wifi: error send");
+    int s;
+    if ((s = wifi.tcpSend((const uint8_t*)buf, len))) {
+        Serial.print(F("wifi: error send "));
+        Serial.println(s);
         state.wifi.started = false;
         state.wifi.connected = false;
     }
@@ -282,13 +288,17 @@ void service_wifi() {
 
     int len = wifi.available();
     if (len < 0) {
+        Serial.print(F("wifi: receive error "));
+        Serial.println(len);
         state.wifi.started = state.wifi.connected = false;
         return;
     }
+
     if ((unsigned)len >= sizeof(packetbuffer)) {
         Serial.println(F("wifi: error, too much data received"));
         return;
     }
+
     if (len > 0) {
         char* buf = (char*)wifi.takePacketBuffer();
         // strip buf of whitespace and \n
