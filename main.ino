@@ -55,16 +55,19 @@ struct state {
 
 #include "capacity.h"
 #include "temperature.h"
-#include "ESP8266.h"
+#include "esp8266.h"
 #include <SoftwareSerial.h>
 
 #define NEAR 10
 
 SoftwareSerial esp(ESP_TX, ESP_RX);
-ESP8266 wifi(esp);
+ESP8266 wifi(esp, ESP_RESET);
+uint8_t packetbuffer[32];
+
 bool wifi_error = false;
 
 void setup() {
+    esp.begin(9600);
     Serial.begin(9600);
 
     pinMode(ESP_RESET, INPUT);
@@ -143,26 +146,25 @@ void service_temperature() {
 }
 
 bool start_wifi() {
-    digitalWrite(ESP_RESET, LOW);
-    pinMode(ESP_RESET, OUTPUT);
-    delay(10);
-    pinMode(ESP_RESET, INPUT);
-    delay(2000);
+    if (!wifi.hardwareReset()) {
+        Serial.println("wifi: reset error");
+        return false;
+    }
 
     Serial.print("wifi: esp8266 ");
-    Serial.println(wifi.getVersion().c_str());
+    //Serial.println(wifi.getVersion().c_str());
 
     if (!wifi.joinAP(SSID, PASS)) {
         Serial.println("wifi: join error");
         return false;
     }
-    if (!wifi.disableMUX()) {
-        Serial.println("wifi: mux error");
-        return false;
-    }
+    //if (!wifi.disableMUX()) {
+    //    Serial.println("wifi: mux error");
+    //    return false;
+    //}
 
     Serial.print("wifi: ip ");
-    Serial.println(wifi.getLocalIP().c_str());
+    //Serial.println(wifi.getLocalIP().c_str());
 
     state.wifi.started = true;
     return true;
@@ -173,7 +175,8 @@ bool connect_wifi() {
         if (!start_wifi()) return false;
     }
 
-    if (!wifi.createTCP(HOST, PORT)) {
+    wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
+    if (!wifi.tcpOpen(HOST, PORT)) {
         Serial.println("wifi: tcp create error");
         state.wifi.started = false;
         return false;
@@ -201,7 +204,7 @@ void send_data() {
     dtostrf(state.temperature.humidity, 0, 2, buf); data += buf;
     data += "}}\n";
 
-    if (!wifi.send((const uint8_t*)data.c_str(), data.length())) {
+    if (!wifi.tcpSend((const uint8_t*)data.c_str(), data.length())) {
         Serial.println("wifi: error send");
         state.wifi.started = false;
         state.wifi.connected = false;
@@ -216,16 +219,14 @@ void service_wifi() {
         if (!connect_wifi()) return;
     }
 
-    // TODO this will receive most commands, but
-    // if other side sends while we are in send_data, will will not see it
-    // requires a much more advanced ESP8266 code ...
-    char buf[100];
-    int len = wifi.recv((uint8_t*)buf, sizeof(buf), 100);
+    int len = wifi.available();
     if (len < 0) {
         state.wifi.started = state.wifi.connected = false;
         return;
     }
     if (len > 0) {
+        char* buf = (char*)wifi.takePacketBuffer();
+        buf[len] = 0;
         char* endp = 0;
         time_t t = strtoul(buf, &endp, 10);
         if (endp && endp > buf) {
@@ -236,6 +237,7 @@ void service_wifi() {
             Serial.print("received: ");
             Serial.println(buf);
         }
+        wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
     }
 
     if (timeStatus() != timeNotSet) send_data();
