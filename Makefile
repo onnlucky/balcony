@@ -276,6 +276,7 @@ AR := $(call findsoftware,avr-ar)
 OBJCOPY := $(call findsoftware,avr-objcopy)
 AVRDUDE := $(call findsoftware,avrdude)
 AVRSIZE := $(call findsoftware,avr-size)
+AVRDUMP := $(call findsoftware,avr-objdump)
 
 # directories
 ARDUINOCOREDIR := $(ARDUINODIR)/hardware/arduino/$(DIR)/cores/arduino
@@ -304,7 +305,7 @@ endif
 endif
 
 # flags
-CPPFLAGS += -Os -Wall -fno-exceptions -ffunction-sections -fdata-sections
+CPPFLAGS += -O3 -Wall -fno-exceptions -ffunction-sections -fdata-sections
 CPPFLAGS += -funsigned-char -funsigned-bitfields -fpack-struct -fshort-enums
 CPPFLAGS += -mmcu=$(BOARD_BUILD_MCU)
 CPPFLAGS += -DF_CPU=$(BOARD_BUILD_FCPU) -DARDUINO=$(ARDUINOCONST)
@@ -317,7 +318,7 @@ CPPINOFLAGS := -x c++ -include $(ARDUINOCOREDIR)/Arduino.h
 AVRDUDEFLAGS += $(addprefix -C , $(AVRDUDECONF)) -DV
 AVRDUDEFLAGS += -p $(BOARD_BUILD_MCU) -P $(SERIALDEV)
 AVRDUDEFLAGS += -c $(BOARD_UPLOAD_PROTOCOL) -b $(BOARD_UPLOAD_SPEED)
-LINKFLAGS += -Os -Wl,--gc-sections -mmcu=$(BOARD_BUILD_MCU)
+LINKFLAGS += -O3 -Wl,--gc-sections -mmcu=$(BOARD_BUILD_MCU)
 
 # figure out which arg to use with stty (for OS X, GNU and busybox stty)
 STTYFARG := $(shell stty --help 2>&1 | \
@@ -382,6 +383,7 @@ monitor:
 	miniterm.py $(SERIALDEV) $(SERIALSPEED)
 
 size: $(TARGET).elf
+	echo && $(AVRDUMP) -t $(TARGET).elf  | grep -E '[.]bss|[.]data' | sort
 	echo && $(AVRSIZE) --format=avr --mcu=$(BOARD_BUILD_MCU) $(TARGET).elf
 
 bootloader:
