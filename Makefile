@@ -373,13 +373,13 @@ monitor:
 	@test -n "$(SERIALDEV)" || { \
 		echo "error: SERIALDEV could not be determined automatically." >&2; \
 		exit 1; }
-	@test -n `which screen` || { \
-		echo "error: can't find GNU screen, you might need to install it." >&2 \
+	@test -n `which miniterm.py` || { \
+		echo "error: can't find miniterm.py, you might need to install it." >&2 \
 		exit 1; }
 	@test 0 -eq $(SERIALDEVGUESS) || { \
 		echo "*GUESSING* at serial device:" $(SERIALDEV); \
 		echo; }
-	screen $(SERIALDEV) $(SERIALSPEED)
+	miniterm.py $(SERIALDEV) $(SERIALSPEED)
 
 size: $(TARGET).elf
 	echo && $(AVRSIZE) --format=avr --mcu=$(BOARD_BUILD_MCU) $(TARGET).elf
