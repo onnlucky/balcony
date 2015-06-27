@@ -49,7 +49,7 @@ struct state {
 #define ESP_RESET 4
 
 #define NDEBUG 1
-#define REV 3
+#define REV 4
 
 // -- end of config --
 
@@ -57,6 +57,7 @@ struct state {
 #include "temperature.h"
 #include "esp8266.h"
 #include <SoftwareSerial.h>
+#include <avr/eeprom.h>
 
 #define NEAR 10
 
@@ -65,6 +66,10 @@ ESP8266 wifi(esp, ESP_RESET);
 uint8_t packetbuffer[32];
 
 bool wifi_error = false;
+
+static inline uint8_t checksum(uint32_t from) {
+    return (from >> 24) + (from >> 16) + (from >> 8) + from;
+}
 
 void setup() {
     esp.begin(9600);
@@ -78,8 +83,16 @@ void setup() {
     pinMode(13, OUTPUT);
     digitalWrite(13, LOW);
 
+    uint32_t last_time = eeprom_read_dword(0);
+    uint8_t check = eeprom_read_byte((uint8_t*)4);
+    if (checksum(last_time) == check) state.pump.last_time = last_time;
+
     Serial.print("balcony rev ");
-    Serial.println(REV);
+    Serial.print(REV);
+    Serial.print(" pump.last_time: ");
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.last_time), minute(state.pump.last_time));
+    Serial.println(buf);
 }
 
 // will pump up water, until water level is reached
@@ -111,6 +124,8 @@ void pump() {
     }
 
     state.pump.duration = now() - state.pump.last_time;
+    eeprom_write_dword(0, state.pump.last_time);
+    eeprom_write_byte((uint8_t*)4, checksum(state.pump.last_time));
 
     Serial.println(F("pump off"));
     digitalWrite(13, LOW);
@@ -228,17 +243,35 @@ void service_wifi() {
         state.wifi.started = state.wifi.connected = false;
         return;
     }
+    if ((unsigned)len >= sizeof(packetbuffer)) {
+        Serial.println(F("wifi: error, too much data received"));
+        return;
+    }
     if (len > 0) {
         char* buf = (char*)wifi.takePacketBuffer();
+        // strip buf of whitespace and \n
+        for (int i = 0; i < len; i++) if (buf[i] <= 32) buf[i] = 0;
         buf[len] = 0;
-        char* endp = 0;
-        time_t t = strtoul(buf, &endp, 10);
-        if (endp && endp > buf) {
-            setTime(t);
-            Serial.print(F("set time: "));
-            Serial.println(now());
+
+        if (buf[0] >= '1' && buf[0] <= '4') { // time command
+            char* endp = 0;
+            time_t t = strtoul(buf, &endp, 10);
+            if (endp && endp > buf) {
+                setTime(t);
+                Serial.print(F("command: set time: "));
+                Serial.println(now());
+            } else {
+                Serial.print(F("command: error setting time: "));
+                Serial.println(buf);
+            }
+        } else if (strcmp(buf, "pump")) {
+            Serial.println(F("command: pump"));
+        } else if (strcmp(buf, "clear")) {
+            Serial.println(F("command: clear"));
+            eeprom_write_dword(0, 0);
+            eeprom_write_byte((uint8_t*)4, 0);
         } else {
-            Serial.print(F("received: "));
+            Serial.print(F("command: error, received: "));
             Serial.println(buf);
         }
         wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
@@ -253,19 +286,16 @@ void loop() {
         last = millis();
         time_t t = now();
         char buf[20];
-        snprintf(buf, sizeof(buf), "%d-%02d-%02dT%02d:%02d:%02d",
-            year(t), month(t), day(t), hour(t), minute(t), second(t));
+        snprintf(buf, sizeof(buf), "%d-%02d-%02dT%02d:%02d:%02d", year(t), month(t), day(t), hour(t), minute(t), second(t));
         Serial.println(buf);
 
         Serial.print(F("pump: "));
         Serial.print(state.pump.duration);
         Serial.print(F(" next: "));
-        snprintf(buf, sizeof(buf), "%02d:%02d",
-            hour(state.pump.next_time), minute(state.pump.next_time));
+        snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.next_time), minute(state.pump.next_time));
         Serial.print(buf);
         Serial.print(F(" last: "));
-        snprintf(buf, sizeof(buf), "%02d:%02d",
-            hour(state.pump.last_time), minute(state.pump.last_time));
+        snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.last_time), minute(state.pump.last_time));
         Serial.println(buf);
 
         Serial.print(F("temperature: "));
@@ -273,8 +303,7 @@ void loop() {
         Serial.print(F(" humidity: "));
         Serial.print(state.temperature.humidity);
         Serial.print(F(" last: "));
-        snprintf(buf, sizeof(buf), "%02d:%02d",
-            hour(state.temperature.last_time), minute(state.temperature.last_time));
+        snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.temperature.last_time), minute(state.temperature.last_time));
         Serial.println(buf);
     }
 
