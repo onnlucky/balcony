@@ -7,10 +7,12 @@
 // pin -- capacitor -- gnd
 // uses the ~10MOhm internal resistor of arduino
 // likely reads 1 - 10
+// returns 0 on failure, 1-255 for low to high
 unsigned int readCapacity1(int pin);
 
 // two pin method to read capacitance
 // pin1 -+-- 1MOhm -- pin2
 //       +-- capacitor -- gnd
 // likely reads 10 - 100
+// returns 0 on failure, 1-255 for low to high
 unsigned int readCapacity2(uint8_t pin1, uint8_t pin2);

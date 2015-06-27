@@ -11,7 +11,7 @@
 #define DIRECT_WRITE_HIGH(base, mask)   ((*((base)+2)) |= (mask))
 
 unsigned int readCapacity1(int pin) {
-    int total = 1;
+    uint8_t total = 1;
     volatile uint8_t* outr = PIN_TO_OUTPUTREG(pin);
     volatile uint8_t* in_r = PIN_TO_INPUTREG(pin);
     volatile uint8_t* mode = PIN_TO_MODEREG(pin);
@@ -37,7 +37,7 @@ unsigned int readCapacity1(int pin) {
 
 // 2 pin method
 unsigned int readCapacity2(uint8_t pin1, uint8_t pin2) {
-    int total = 1;
+    uint8_t total = 1;
     volatile uint8_t* sReg = PIN_TO_INPUTREG(pin1);
     volatile uint8_t* rReg = PIN_TO_INPUTREG(pin2);
     const uint8_t sBit = digitalPinToBitMask(pin1);
