@@ -1,0 +1,2 @@
+run:
+	tl main.tl

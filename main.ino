@@ -57,7 +57,7 @@ struct state {
 #define ESP_RESET 4
 
 #define NDEBUG 1
-#define REV 4
+#define REV 5
 
 // -- end of config --
 
@@ -316,9 +316,10 @@ void service_wifi() {
                 Serial.print(F("command: error setting time: "));
                 Serial.println(buf);
             }
-        } else if (strcmp(buf, "pump")) {
+        } else if (!strcmp(buf, "pump")) {
             Serial.println(F("command: pump"));
-        } else if (strcmp(buf, "clear")) {
+            state.pump.next_time = now();
+        } else if (!strcmp(buf, "clear")) {
             Serial.println(F("command: clear"));
             eeprom_write_dword(0, 0);
             eeprom_write_byte((uint8_t*)4, 0);
