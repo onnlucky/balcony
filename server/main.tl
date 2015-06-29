@@ -37,6 +37,6 @@ log.info("data logger running:", s.ip, s.port)
         conn.write("fail: no client\n")
         break
     client.write(cmd, "\n")
-    conn.write("ok\n");
+    conn.write("ok\n")
 )
 
