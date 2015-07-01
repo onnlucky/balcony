@@ -19,6 +19,7 @@ I have a 12V 7Amp battery, hooked up to a solar panel. There is a water pump
 connected to it via a relays. There is an arduino that can switch the relays.
 
 The arduino is connected to:
+
 1. a relays
 2. a moist sensor (in the high bucket)
 3. a capacitive water level sensor (in the main bucket)
@@ -36,3 +37,4 @@ TODO
 * replace sensor in top bucket (maybe)
 * allow setting amount (duration) of water to be pumped, perhaps temperature based etc.
 * work on server and interface, to allow more control
+* 45 is low water, 62 is full
