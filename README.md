@@ -20,18 +20,17 @@ connected to it via a relays. There is an arduino that can switch the relays.
 
 The arduino is connected to:
 1. a relays
-2. a moist sensor (glued in the high bucket)
-3. a (emergency) stop button
+2. a moist sensor (in the high bucket)
+3. a capacitive water level sensor (in the main bucket)
+4. a temerature sensor
+5. an esp8266 wifi module
 
-For now, the arduino drives the pump, until it senses water. It also stops when the button is pressed, or when 1 minute passed. It doesn't take long to fill the top bucket, and the pump may not be run continuously, or run dry.
+The arduino reports its sensors via the esp8266, and receives the time. Every
+morning it will pump at 10:15 until the high bucket is full.
 
 TODO
 ----
 
-larger bottom bucket
-sensor in the bottom bucket
-add time to arduino, pump once every 24 hours
-replace sensor in top bucket (maybe)
-alert when bottom bucket is empty
-allow setting amount of water to be pumped, perhaps temperature based etc.
-
+* rework `pump()` so that it state machine based, and works from `service_pump()`
+* replace sensor in top bucket (maybe)
+* allow setting amount (duration) of water to be pumped, perhaps temperature based etc.
