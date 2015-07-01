@@ -31,6 +31,8 @@ morning it will pump at 10:15 until the high bucket is full.
 TODO
 ----
 
+* add volt meter to battery and report on it
 * rework `pump()` so that it state machine based, and works from `service_pump()`
 * replace sensor in top bucket (maybe)
 * allow setting amount (duration) of water to be pumped, perhaps temperature based etc.
+* work on server and interface, to allow more control
