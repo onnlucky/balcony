@@ -1,6 +1,7 @@
 // author: Onne Gorter
 // license: CC0 http://creativecommons.org/publicdomain/zero/1.0/
 
+#define TESTING 1
 #include "Time.h"
 
 struct state {
@@ -66,6 +67,10 @@ struct state {
 #include "esp8266.h"
 #include <SoftwareSerial.h>
 #include <avr/eeprom.h>
+
+#ifdef TESTING
+#include <ArduinoUnit.h>
+#endif
 
 #define NEAR 10
 
@@ -384,5 +389,40 @@ void loop() {
         last = millis();
         send_data();
     }
+
+#ifdef TESTING
+    Test::run();
+#endif
 }
+
+// tests
+
+#ifdef TESTING
+class PumpTest : public Test {
+public:
+    time_t t;
+    void setup() {
+        t = 1435831575UL; // 2015-07-02T12:06
+        setTime(t);
+        memset(&state, 0, sizeof(state));
+    }
+
+    void loop() {
+        do {
+            if (t >= t + minutes(1) + 2) {
+                assertTrue(!::state.pump.on);
+                assertMore(::state.pump.duration, 0);
+                assertLessOrEqual(::state.pump.duration, 61);
+                assertMoreOrEqual(t, ::state.pump.last_time);
+                assertMoreOrEqual(midnight(t) + hours(24), ::state.pump.next_time);
+                pass();
+                break;
+            }
+        } while (false);
+    }
+};
+
+PumpTest pumpTest();
+
+#endif
 
