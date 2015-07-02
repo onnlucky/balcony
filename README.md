@@ -37,3 +37,8 @@ TODO
 * allow setting amount (duration) of water to be pumped, perhaps temperature based etc.
 * work on server and interface, to allow more control
 
+Schematic
+----
+
+![fritzing schematic](balcony.fzz.png)
+
