@@ -52,6 +52,7 @@ struct state {
 #define MAINBUCKET_LEVEL_PIN2 6
 #define MAINBUCKET_LEVEL_EMPTY 44
 #define MAINBUCKET_LEVEL_FULL 65
+#define MAINBUCKET_DISCONNECTED 10
 
 // esp8266
 #define ESP_RX 2
@@ -116,20 +117,27 @@ void measure_mainbucket_level() {
     state.mainbucket.last_time = now();
 }
 
-#define midnight previousMidnight
+#define midnight(T) (((T) / SECS_PER_DAY) * SECS_PER_DAY)
 #define hours(H) ((H) * SECS_PER_HOUR)
 #define minutes(M) ((M) * SECS_PER_MIN)
 void pump_schedule_next(time_t t) {
     state.pump.next_time = midnight(t) + hours(9) + minutes(15);
 
     if (state.pump.next_time < t) {
-        // if last time was before 3am in the morning, now
-        if (midnight(state.pump.last_time - hours(3)) <= midnight(t)) {
+        if (!state.pump.last_time || midnight(state.pump.last_time - hours(3)) < midnight(t)) {
+            Serial.println(F("pump schedule: now because last_time was not today"));
             state.pump.next_time = t;
         } else {
-            // tomorrow
+            Serial.println(F("pump schedule: tomorrow"));
             state.pump.next_time += hours(24);
         }
+    }
+
+    // correct any last_time errors
+    if (state.pump.next_time < state.pump.last_time) {
+        state.pump.last_time = t - 1;
+        Serial.print(F("pump schedule: correcting last_time"));
+        Serial.println(state.pump.last_time);
     }
 }
 
@@ -170,7 +178,7 @@ void service_pump() {
             }
 
             measure_mainbucket_level();
-            if (state.mainbucket.level >= 0 && state.mainbucket.level <= MAINBUCKET_LEVEL_EMPTY) {
+            if (state.mainbucket.level >= MAINBUCKET_DISCONNECTED && state.mainbucket.level <= MAINBUCKET_LEVEL_EMPTY) {
                 Serial.println(F("pump off: main bucket empty"));
                 state.pump.on = false;
                 break;
@@ -183,9 +191,12 @@ void service_pump() {
             pump_schedule_next(t);
             Serial.print(F("pump schedule next: "));
             Serial.println(state.pump.next_time);
+            if (state.pump.next_time <= state.pump.last_time) {
+                Serial.println(F("OEPS"));
+            }
         }
 
-        if (state.pump.next_time < t) {
+        if (state.pump.next_time <= t) {
             Serial.println(F("pump on: time"));
             pump_on(t);
         }
@@ -272,7 +283,7 @@ bool connect_wifi() {
 }
 
 void send_data() {
-    char buf[200];
+    char buf[300];
 
     time_t t = now();
     snprintf(buf, sizeof(buf), "%d-%02d-%02dT%02d:%02d:%02d", year(t), month(t), day(t), hour(t), minute(t), second(t));
@@ -376,8 +387,10 @@ void service_wifi() {
 }
 
 void loop() {
+#ifndef TESTING
     // first, so measuring sensors etc can use serial buffer
     service_wifi();
+#endif
 
     service_temperature();
     service_bucket();
@@ -401,28 +414,52 @@ void loop() {
 class PumpTest : public Test {
 public:
     time_t t;
+
+    PumpTest(const char* name) : Test(name) { }
+
     void setup() {
+        Serial.println(F("PumpTest setup()"));
+
         t = 1435831575UL; // 2015-07-02T12:06
         setTime(t);
-        memset(&state, 0, sizeof(state));
+        memset(&::state, 0, sizeof(::state));
+        assertTrue(::state.pump.last_time == 0);
+        assertFalse(::state.pump.on);
     }
 
     void loop() {
+        time_t n = now();
         do {
-            if (t >= t + minutes(1) + 2) {
-                assertTrue(!::state.pump.on);
+            // between 5 - 25 seconds
+            if (n > t + 5 && n <= t + 25) {
+                assertTrue(::state.pump.on);
                 assertMore(::state.pump.duration, 0);
                 assertLessOrEqual(::state.pump.duration, 61);
-                assertMoreOrEqual(t, ::state.pump.last_time);
-                assertMoreOrEqual(midnight(t) + hours(24), ::state.pump.next_time);
+                assertMore(::state.pump.last_time, 0);
+                assertLess(::state.pump.last_time, n);
+            }
+
+            // after a minute
+            if (now() >= t + minutes(1) + 2) {
+                assertFalse(::state.pump.on);
+                assertMore(::state.pump.duration, 0);
+                assertLessOrEqual(::state.pump.duration, 61);
+                assertMore(::state.pump.last_time, 0);
+                assertLess(::state.pump.last_time, n);
+                assertMoreOrEqual(::state.pump.next_time, midnight(t) + hours(24));
+            }
+
+            // after three minutes
+            if (now() >= t + minutes(3)) {
                 pass();
-                break;
             }
         } while (false);
+
+        setTime(t + (millis() / 100)); // make time go faster
     }
 };
 
-PumpTest pumpTest();
+PumpTest pumpTest("PumpTest");
 
 #endif
 
