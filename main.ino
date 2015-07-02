@@ -1,7 +1,7 @@
 // author: Onne Gorter
 // license: CC0 http://creativecommons.org/publicdomain/zero/1.0/
 
-#define TESTING 1
+//#define TESTING 1
 #include "Time.h"
 
 struct state {
@@ -29,6 +29,10 @@ struct state {
         bool started;
         bool connected;
     } wifi;
+    struct battery {
+        time_t last_time;
+        float level;
+    } battery;
 } state;
 
 #define SSID F("SSID")
@@ -40,6 +44,13 @@ struct state {
 #define HIGHBUCKET_LEVEL_PIN A0
 #define HIGHBUCKET_LEVEL_REACHED 800
 
+// capacitive water level sensor in the main bucket
+#define MAINBUCKET_LEVEL_PIN1 7
+#define MAINBUCKET_LEVEL_PIN2 6
+#define MAINBUCKET_LEVEL_EMPTY 44
+#define MAINBUCKET_LEVEL_FULL 65
+#define MAINBUCKET_DISCONNECTED 10
+
 // waterpump, pumps from main bucket into the high up bucket
 #define PUMP_PIN 12
 #define PUMP_MAX_SECONDS 60
@@ -47,12 +58,10 @@ struct state {
 // am2302 temperature sensor
 #define TEMP_PIN 11
 
-// capacitive water level sensor in the main bucket
-#define MAINBUCKET_LEVEL_PIN1 7
-#define MAINBUCKET_LEVEL_PIN2 6
-#define MAINBUCKET_LEVEL_EMPTY 44
-#define MAINBUCKET_LEVEL_FULL 65
-#define MAINBUCKET_DISCONNECTED 10
+// voltage measurement using voltage devider on battery
+// 12V - 100KOhm - 100KOhm + 100KOhm - GND
+//                         + pin
+#define BATTERY_LEVEL_PIN A1
 
 // esp8266
 #define ESP_RX 2
@@ -106,10 +115,6 @@ void setup() {
     char buf[20];
     snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.last_time), minute(state.pump.last_time));
     Serial.println(buf);
-
-#ifdef TESTING
-    setTime(TEST_TIME);
-#endif
 }
 
 void measure_highbucket_level() {
@@ -120,6 +125,12 @@ void measure_highbucket_level() {
 void measure_mainbucket_level() {
     state.mainbucket.level = readCapacity2(MAINBUCKET_LEVEL_PIN1, MAINBUCKET_LEVEL_PIN2);
     state.mainbucket.last_time = now();
+}
+
+void measure_battery_level() {
+    int l = analogRead(BATTERY_LEVEL_PIN);
+    state.battery.level = l / 1024.0 * 5.0 * 3.0;
+    state.battery.last_time = now();
 }
 
 #define midnight(T) (((T) / SECS_PER_DAY) * SECS_PER_DAY)
@@ -224,14 +235,19 @@ void service_temperature() {
     }
 }
 
-void service_bucket() {
+void service_highbucket() {
     if (!state.pump.on && state.highbucket.last_time + 5 > now()) return;
     measure_highbucket_level();
 }
 
-void service_main() {
+void service_mainbucket() {
     if (!state.pump.on && state.mainbucket.last_time + 5 > now()) return;
     measure_mainbucket_level();
+}
+
+void service_battery() {
+    if (!state.pump.on && state.battery.last_time + 5 > now()) return;
+    measure_battery_level();
 }
 
 bool start_wifi() {
@@ -299,20 +315,24 @@ void send_data() {
 
     static const char fmt[] PROGMEM =
         "{id=\"balcony\",r=%d,"
-        "pump={duration=%d,next=%lu,last=%lu},"
+        "battery={level=%s,last=%lu},"
+        "pump={duration=%d,on=%d,next=%lu,last=%lu},"
         "highbucket={level=%d,last=%lu},"
         "mainbucket={level=%d,last=%lu},"
         "temperature={celcius=%s,humidity=%s,last=%lu}}\n";
 
     // %f format only works when adding this to gcc: -Wl,-u,vfprintf -lprintf_flt -lm
+    char bbuf[14];
     char cbuf[14];
     char hbuf[14];
+    dtostrf(state.battery.level, 0, 2, bbuf);
     dtostrf(state.temperature.celcius, 0, 2, cbuf);
     dtostrf(state.temperature.humidity, 0, 2, hbuf);
 
     int len = snprintf_P(buf, sizeof(buf), fmt,
         REV,
-        state.pump.duration, state.pump.next_time, state.pump.last_time,
+        bbuf, state.battery.last_time,
+        state.pump.duration, state.pump.on, state.pump.next_time, state.pump.last_time,
         state.highbucket.level, state.highbucket.last_time,
         state.mainbucket.level, state.highbucket.last_time,
         cbuf, hbuf, state.temperature.last_time);
@@ -401,8 +421,9 @@ void loop() {
 #endif
 
     service_temperature();
-    service_bucket();
-    service_main();
+    service_highbucket();
+    service_mainbucket();
+    service_battery();
 
 #ifdef TESTING
     setTime(TEST_TIME + (millis() / 50)); // make time go faster

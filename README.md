@@ -25,6 +25,7 @@ The arduino is connected to:
 3. a capacitive water level sensor (in the main bucket)
 4. a temerature sensor
 5. an esp8266 wifi module
+6. a voltage divider sensing battery level
 
 The arduino reports its sensors via the esp8266, and receives the time. Every
 morning it will pump at 10:15 until the high bucket is full.
@@ -32,9 +33,7 @@ morning it will pump at 10:15 until the high bucket is full.
 TODO
 ----
 
-* add volt meter to battery and report on it
-* rework `pump()` so that it state machine based, and works from `service_pump()`
 * replace sensor in top bucket (maybe)
 * allow setting amount (duration) of water to be pumped, perhaps temperature based etc.
 * work on server and interface, to allow more control
-* 45 is low water, 62 is full
+
