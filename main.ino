@@ -5,18 +5,19 @@
 
 struct state {
     struct pump {
+        int duration;
+        bool on;
         time_t next_time;
         time_t last_time;
-        int duration;
     } pump;
-    struct bucket {
+    struct highbucket {
         time_t last_time;
         int level;
-    } bucket;
-    struct main {
+    } highbucket;
+    struct mainbucket {
         time_t last_time;
         int level;
-    } main;
+    } mainbucket;
     struct temperature {
         time_t last_time;
         float celcius;
@@ -29,35 +30,34 @@ struct state {
     } wifi;
 } state;
 
-#define SSID "SSID"
-#define PASS "PASS"
+#define SSID F("SSID")
+#define PASS F("PASS")
 #define HOST F("192.168.87.101")
 #define PORT 6979
 
-// high up moist sensor, used as "full" indicator
-#define BUCKET_LEVEL_PIN A0
-#define BUCKET_LEVEL_REACHED 800
+// moist sensor in the high up bucket, used as "full" indicator
+#define HIGHBUCKET_LEVEL_PIN A0
+#define HIGHBUCKET_LEVEL_REACHED 800
 
-// waterpump
+// waterpump, pumps from main bucket into the high up bucket
 #define PUMP_PIN 12
-#define MAX_PUMP_MS ((unsigned long)1000 * 60)
+#define PUMP_MAX_SECONDS 60
 
 // am2302 temperature sensor
 #define TEMP_PIN 11
 
-// capacitive main water level sensor
-#define MAIN_LEVEL_PIN1 7
-#define MAIN_LEVEL_PIN2 6
-#define MAIN_LEVEL_EMPTY 33
-#define MAIN_LEVEL_FULL 80
+// capacitive water level sensor in the main bucket
+#define MAINBUCKET_LEVEL_PIN1 7
+#define MAINBUCKET_LEVEL_PIN2 6
+#define MAINBUCKET_LEVEL_EMPTY 44
+#define MAINBUCKET_LEVEL_FULL 65
 
 // esp8266
 #define ESP_RX 2
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define NDEBUG 1
-#define REV 5
+#define REV 6
 
 // -- end of config --
 
@@ -101,58 +101,93 @@ void setup() {
     Serial.println(buf);
 }
 
-// will pump up water, until water level is reached
-// TOOD either process wifi events, or make this cooperative
-void pump() {
-    state.pump.last_time = now();
-    unsigned long start = millis();
+void measure_highbucket_level() {
+    state.highbucket.level = analogRead(HIGHBUCKET_LEVEL_PIN);
+    state.highbucket.last_time = now();
+}
 
-    Serial.println(F("pump on"));
-    while (true) {
-        unsigned long ms = millis();
-
-        if ((unsigned long)(ms - start) > MAX_PUMP_MS) {
-            Serial.println(F("max pump ms"));
-            break;
-        }
-
-        int mlast = 0;
-        int mstate = analogRead(BUCKET_LEVEL_PIN);
-        if (abs(mlast - mstate) > NEAR) {
-            mlast = mstate;
-            if (mstate < BUCKET_LEVEL_REACHED) {
-                Serial.println(F("bucket full"));
-                state.bucket.level = mstate;
-                state.bucket.last_time = now();
-                break;
-            }
-        }
-
-        digitalWrite(13, HIGH);
-        digitalWrite(PUMP_PIN, HIGH);
-    }
-
-    state.pump.duration = now() - state.pump.last_time;
-    eeprom_write_dword(0, state.pump.last_time);
-    eeprom_write_byte((uint8_t*)4, checksum(state.pump.last_time));
-
-    Serial.println(F("pump off"));
-    digitalWrite(13, LOW);
-    digitalWrite(PUMP_PIN, LOW);
+void measure_mainbucket_level() {
+    state.mainbucket.level = readCapacity2(MAINBUCKET_LEVEL_PIN1, MAINBUCKET_LEVEL_PIN2);
+    state.mainbucket.last_time = now();
 }
 
 #define midnight previousMidnight
 #define hours(H) ((H) * SECS_PER_HOUR)
 #define minutes(M) ((M) * SECS_PER_MIN)
-void service_pump() {
-    if (timeStatus() == timeNotSet) return;
+void pump_schedule_next(time_t t) {
+    state.pump.next_time = midnight(t) + hours(9) + minutes(15);
 
-    if (state.pump.next_time <= state.pump.last_time) {
-        state.pump.next_time = midnight(now()) + hours(10) + minutes(15);
-        if (state.pump.next_time < now()) state.pump.next_time += hours(24);
+    if (state.pump.next_time < t) {
+        // if last time was before 3am in the morning, now
+        if (midnight(state.pump.last_time - hours(3)) <= midnight(t)) {
+            state.pump.next_time = t;
+        } else {
+            // tomorrow
+            state.pump.next_time += hours(24);
+        }
     }
+}
 
-    if (state.pump.next_time < now()) pump();
+void pump_off() {
+    state.pump.on = false;
+    eeprom_write_dword(0, state.pump.last_time);
+    eeprom_write_byte((uint8_t*)4, checksum(state.pump.last_time));
+}
+
+void pump_on(time_t t) {
+    state.pump.on = true;
+    state.pump.duration = 0;
+    state.pump.last_time = t;
+}
+
+void service_pump() {
+    uint32_t t = now();
+    do {
+        if (timeStatus() == timeNotSet) {
+            state.pump.on = false;
+            break;
+        }
+
+        if (state.pump.on) {
+            state.pump.duration = t - state.pump.last_time;
+
+            if (state.pump.duration > PUMP_MAX_SECONDS) {
+                Serial.println(F("pump off: max time"));
+                pump_off();
+                break;
+            }
+
+            measure_highbucket_level();
+            if (state.highbucket.level <= HIGHBUCKET_LEVEL_REACHED) {
+                Serial.println(F("pump off: highbucket full"));
+                pump_off();
+                break;
+            }
+
+            measure_mainbucket_level();
+            if (state.mainbucket.level >= 0 && state.mainbucket.level <= MAINBUCKET_LEVEL_EMPTY) {
+                Serial.println(F("pump off: main bucket empty"));
+                state.pump.on = false;
+                break;
+            }
+
+            break;
+        }
+
+        if (state.pump.next_time <= state.pump.last_time) {
+            pump_schedule_next(t);
+            Serial.print(F("pump schedule next: "));
+            Serial.println(state.pump.next_time);
+        }
+
+        if (state.pump.next_time < t) {
+            Serial.println(F("pump on: time"));
+            pump_on(t);
+        }
+
+    } while (false);
+
+    digitalWrite(PUMP_PIN, state.pump.on);
 }
 
 void service_temperature() {
@@ -170,15 +205,13 @@ void service_temperature() {
 }
 
 void service_bucket() {
-    if (state.bucket.last_time + 5 > now()) return;
-    state.bucket.level = analogRead(BUCKET_LEVEL_PIN);
-    state.bucket.last_time = now();
+    if (state.highbucket.last_time + 5 > now()) return;
+    measure_highbucket_level();
 }
 
 void service_main() {
-    if (state.main.last_time + 5 > now()) return;
-    state.main.level = readCapacity2(MAIN_LEVEL_PIN1, MAIN_LEVEL_PIN2);
-    state.main.last_time = now();
+    if (state.mainbucket.last_time + 5 > now()) return;
+    measure_mainbucket_level();
 }
 
 bool start_wifi() {
@@ -243,9 +276,9 @@ void send_data() {
     static const char fmt[] PROGMEM =
         "{id=\"balcony\",r=%d,"
         "pump={duration=%d,next=%lu,last=%lu},"
-        "bucket={level=%d,last=%lu},"
-        "main={level=%d,last=%lu},"
-        "temp={celcius=%s,humidity=%s,last=%lu}}\n";
+        "highbucket={level=%d,last=%lu},"
+        "mainbucket={level=%d,last=%lu},"
+        "temperature={celcius=%s,humidity=%s,last=%lu}}\n";
 
     // %f format only works when adding this to gcc: -Wl,-u,vfprintf -lprintf_flt -lm
     char cbuf[14];
@@ -256,8 +289,8 @@ void send_data() {
     int len = snprintf_P(buf, sizeof(buf), fmt,
         REV,
         state.pump.duration, state.pump.next_time, state.pump.last_time,
-        state.bucket.level, state.bucket.last_time,
-        state.main.level, state.bucket.last_time,
+        state.highbucket.level, state.highbucket.last_time,
+        state.mainbucket.level, state.highbucket.last_time,
         cbuf, hbuf, state.temperature.last_time);
 
     if ((unsigned)len >= sizeof(buf)) {
@@ -319,6 +352,12 @@ void service_wifi() {
         } else if (!strcmp(buf, "pump")) {
             Serial.println(F("command: pump"));
             state.pump.next_time = now();
+        } else if (!strcmp(buf, "stop")) {
+            Serial.println(F("command: stop"));
+            if (state.pump.on) {
+                Serial.println(F("pump off: stop received"));
+                pump_off();
+            }
         } else if (!strcmp(buf, "clear")) {
             Serial.println(F("command: clear"));
             eeprom_write_dword(0, 0);
