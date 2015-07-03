@@ -108,9 +108,13 @@ void setup() {
     pinMode(13, OUTPUT);
     digitalWrite(13, LOW);
 
-    uint32_t last_time = eeprom_read_dword(0);
+    uint32_t last_time = eeprom_read_dword((uint32_t*)0);
     uint8_t check = eeprom_read_byte((uint8_t*)4);
-    if (checksum(last_time) == check) state.pump.last_time = last_time;
+    int duration = eeprom_read_word((uint16_t*)5);
+    if (checksum(last_time) == check) {
+        state.pump.last_time = last_time;
+        state.pump.duration = duration;
+    }
 
     Serial.print(F("balcony rev "));
     Serial.print(REV);
@@ -166,8 +170,9 @@ void pump_schedule_next(time_t t) {
 
 void pump_off() {
     state.pump.on = false;
-    eeprom_write_dword(0, state.pump.last_time);
+    eeprom_write_dword((uint32_t*)0, state.pump.last_time);
     eeprom_write_byte((uint8_t*)4, checksum(state.pump.last_time));
+    eeprom_write_word((uint16_t*)5, state.pump.duration);
 }
 
 void pump_on(time_t t) {
@@ -422,8 +427,9 @@ void service_wifi() {
             }
         } else if (!strcmp(buf, "clear")) {
             Serial.println(F("command: clear"));
-            eeprom_write_dword(0, 0);
+            eeprom_write_dword((uint32_t*)0, 0);
             eeprom_write_byte((uint8_t*)4, 0);
+            eeprom_write_word((uint16_t*)5, 0);
         } else {
             Serial.print(F("command: error, received: "));
             Serial.println(buf);
