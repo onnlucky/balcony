@@ -50,9 +50,6 @@ struct state {
 // capacitive water level sensor in the main bucket
 #define MAINBUCKET_LEVEL_PIN1 7
 #define MAINBUCKET_LEVEL_PIN2 6
-#define MAINBUCKET_LEVEL_EMPTY 44
-#define MAINBUCKET_LEVEL_FULL 65
-#define MAINBUCKET_DISCONNECTED 10
 
 // waterpump, pumps from main bucket into the high up bucket
 #define PUMP_PIN 12
@@ -71,7 +68,7 @@ struct state {
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define REV 7
+#define REV 8
 
 // -- end of config --
 
@@ -176,6 +173,8 @@ void pump_off() {
 }
 
 void pump_on(time_t t) {
+    measure_highbucket_level();
+    measure_mainbucket_level();
     state.pump.on = true;
     state.pump.duration = 0;
     state.pump.last_time = t;
@@ -200,14 +199,9 @@ void service_pump() {
 
             // measurements are taken as fast as possible, when pump is on ...
             if (state.highbucket.level <= HIGHBUCKET_LEVEL_REACHED) {
-                Serial.println(F("pump off: highbucket full"));
+                Serial.print(F("pump off: highbucket full: "));
+                Serial.println(state.highbucket.level);
                 pump_off();
-                break;
-            }
-
-            if (state.mainbucket.level >= MAINBUCKET_DISCONNECTED && state.mainbucket.level <= MAINBUCKET_LEVEL_EMPTY) {
-                Serial.println(F("pump off: main bucket empty"));
-                state.pump.on = false;
                 break;
             }
 
@@ -253,12 +247,12 @@ void service_highbucket() {
 }
 
 void service_mainbucket() {
-    if (!state.pump.on && state.mainbucket.last_time + 1 > now()) return;
+    if (state.mainbucket.last_time + 1 > now()) return;
     measure_mainbucket_level();
 }
 
 void service_battery() {
-    if (!state.pump.on && state.battery.last_time + 1 > now()) return;
+    if (state.battery.last_time + 1 > now()) return;
     measure_battery_level();
 }
 
@@ -565,14 +559,8 @@ void trick_highbucket(time_t dt) {
     state.highbucket.level = constrain(HIGHBUCKET_LEVEL_REACHED + (30 - dt) * 10, 500, 1024);
 }
 
-void trick_mainbucket(time_t dt) {
-    trick_highbucket(dt);
-    state.mainbucket.level = constrain(MAINBUCKET_LEVEL_EMPTY + 25 - dt, 20, 80);
-}
-
 PumpTest pumpTest1("pump max seconds");
 PumpTest pumpTest2("pump highbucket full", trick_highbucket);
-PumpTest pumpTest3("pump mainbucket empty", trick_mainbucket);
 
 #endif
 
