@@ -29,6 +29,8 @@ struct state {
         time_t last_time;
         bool started;
         bool connected;
+        uint32_t last_start;
+        uint32_t last_connect;
     } wifi;
     struct battery {
         time_t last_time;
@@ -116,6 +118,9 @@ void setup() {
     char buf[20];
     snprintf(buf, sizeof(buf), "%02d:%02d", hour(state.pump.last_time), minute(state.pump.last_time));
     Serial.println(buf);
+
+    state.wifi.last_start = -30000L;
+    state.wifi.last_connect = -30000L;
 }
 
 void measure_highbucket_level() {
@@ -255,6 +260,9 @@ void service_battery() {
 bool start_wifi() {
     if (state.pump.on) return false;
 
+    if ((uint32_t)(millis() - state.wifi.last_start) < 30000UL) return false;
+    state.wifi.last_start = millis();
+
     int s;
     if ((s = wifi.hardwareReset())) {
         Serial.print(F("wifi: reset error "));
@@ -291,6 +299,9 @@ bool start_wifi() {
 bool connect_wifi() {
     if (state.pump.on) return false;
 
+    if ((uint32_t)(millis() - state.wifi.last_connect) < 5000UL) return false;
+    state.wifi.last_connect = millis();
+
     if (!state.wifi.started) {
         if (!start_wifi()) return false;
     }
@@ -300,7 +311,11 @@ bool connect_wifi() {
     if ((s = wifi.tcpOpen(HOST, PORT))) {
         Serial.print(F("wifi: tcp open error "));
         Serial.println(s);
-        state.wifi.started = false;
+        // restart wifi if tcpOpen timeouts, or if it keeps on failing
+        if (s == -1 || (uint32_t)(millis() - state.wifi.last_start) > 30000UL) {
+            Serial.println(F("wifi: restarting"));
+            state.wifi.started = false;
+        }
         return false;
     }
 
