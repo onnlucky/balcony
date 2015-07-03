@@ -5,6 +5,7 @@
 #include "Time.h"
 
 struct state {
+    time_t starttime;
     struct pump {
         int duration;
         bool on;
@@ -68,7 +69,7 @@ struct state {
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define REV 6
+#define REV 7
 
 // -- end of config --
 
@@ -129,7 +130,8 @@ void measure_mainbucket_level() {
 
 void measure_battery_level() {
     int l = analogRead(BATTERY_LEVEL_PIN);
-    state.battery.level = l / 1024.0 * 5.0 * 3.0;
+    float div = (100000.0 + 100000.0 + 100000.0) / 100000.0;
+    state.battery.level = l / 1024.0 * 5.0 * div;
     state.battery.last_time = now();
 }
 
@@ -236,17 +238,17 @@ void service_temperature() {
 }
 
 void service_highbucket() {
-    if (!state.pump.on && state.highbucket.last_time + 5 > now()) return;
+    if (!state.pump.on && state.highbucket.last_time + 1 > now()) return;
     measure_highbucket_level();
 }
 
 void service_mainbucket() {
-    if (!state.pump.on && state.mainbucket.last_time + 5 > now()) return;
+    if (!state.pump.on && state.mainbucket.last_time + 1 > now()) return;
     measure_mainbucket_level();
 }
 
 void service_battery() {
-    if (!state.pump.on && state.battery.last_time + 5 > now()) return;
+    if (!state.pump.on && state.battery.last_time + 1 > now()) return;
     measure_battery_level();
 }
 
@@ -314,7 +316,7 @@ void send_data() {
     Serial.println(buf);
 
     static const char fmt[] PROGMEM =
-        "{id=\"balcony\",r=%d,"
+        "{id=\"balcony\",r=%d,uptime=%lu,"
         "battery={level=%s,last=%lu},"
         "pump={duration=%d,on=%d,next=%lu,last=%lu},"
         "highbucket={level=%d,last=%lu},"
@@ -330,7 +332,7 @@ void send_data() {
     dtostrf(state.temperature.humidity, 0, 2, hbuf);
 
     int len = snprintf_P(buf, sizeof(buf), fmt,
-        REV,
+        REV, now() - state.starttime,
         bbuf, state.battery.last_time,
         state.pump.duration, state.pump.on, state.pump.next_time, state.pump.last_time,
         state.highbucket.level, state.highbucket.last_time,
@@ -386,6 +388,7 @@ void service_wifi() {
             char* endp = 0;
             time_t t = strtoul(buf, &endp, 10);
             if (endp && endp > buf) {
+                state.starttime = t;
                 setTime(t);
                 Serial.print(F("command: set time: "));
                 Serial.println(now());
@@ -426,6 +429,7 @@ void loop() {
     service_battery();
 
 #ifdef TESTING
+    state.starttime = TEST_TIME;
     setTime(TEST_TIME + (millis() / 50)); // make time go faster
     Test::run();
 #endif
