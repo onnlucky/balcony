@@ -438,6 +438,22 @@ void service_wifi() {
     }
 }
 
+void service_statusled() {
+    // bit pattern to blink, 8 steps in 2 seconds, 2048 / 8
+    uint8_t status = 0x80; // 0b1000_0000
+
+    if (!state.wifi.started) {
+        status = 0xFC; // 0b1111_1100
+    } else if (!state.wifi.connected) {
+        status = 0xCC; // 0b1100_1100
+    } else if (timeStatus() == timeNotSet) {
+        status = 0xAA; // 0b1010_1010
+    }
+
+    int at = (millis() >> 8) & 7;
+    digitalWrite(13, (status >> at) & 1);
+}
+
 void loop() {
 #ifndef TESTING
     // first, so measuring sensors etc can use serial buffer
@@ -456,6 +472,7 @@ void loop() {
 #endif
 
     service_pump();
+    service_statusled();
 
     static unsigned long last;
     if ((unsigned long)(millis() - last) > 5000UL) {
