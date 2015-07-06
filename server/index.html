@@ -1,0 +1,171 @@
+<title>balcony</title>
+<style>
+    html, body { width: 100%; margin: 0; padding 0; box-sizing: border-box; }
+    #banner { background-color: #FFAFAF; width: 100%; padding: 1em; display: none }
+    canvas { padding: 0; width: 100%; height: 200px }
+    #control { margin: 1em }
+</style>
+
+<div id=banner>.</div>
+<div id=status>unknown</div>
+<canvas id=c></canvas>
+<div id=controls>
+    <button id=pump>pump on</button>
+    <button id=stoppump>pump off</button>
+    <button id=clear>clear</button>
+</div>
+<script>
+
+MAX = 60 / 5 * 60 * 24 * 2 // days
+
+battery = {
+    get: function(d) { return d.data.battery.level },
+    color: function(l) {
+        if (l <= 11) return "red"
+        if (l <= 11.5) return "orange"
+        if (l <= 12) return "yellow"
+        return "green"
+    },
+    strokeStyle: "black",
+}
+temperature = {
+    get: function(d) { return d.data.temp.celcius },
+    strokeStyle: "black",
+}
+humidity = {
+    get: function(d) { return d.data.temp.humidity },
+    strokeStyle: "blue",
+}
+
+data = []
+
+var c = document.getElementById("c")
+var g = c.getContext("2d")
+
+function plot(data, graphs) {
+    var width = c.offsetWidth
+    var height = c.offsetHeight
+    g.width = c.width = width
+    g.height = c.height = height
+
+    g.fillStyle = "lightgreen"
+    g.fillStyle = "white"
+    g.fillRect(0, 0, width, height)
+
+    if (data.length == 0) return
+
+    var min_time = Number.MAX_VALUE
+    var max_time = Number.MIN_VALUE
+    var range_time = 0
+    var min = graphs.map(function() { return Number.MAX_VALUE })
+    var max = graphs.map(function() { return Number.MIN_VALUE })
+    var range = []
+
+    var first_error = true
+    data.forEach(function(d) {
+        if (d.time < min_time) min_time = d.time
+        if (d.time > max_time) max_time = d.time
+        graphs.forEach(function(gf, n) {
+            var point = 0
+            try { point = gf.get(d) } catch (e) {
+                if (first_error) console.error("error in graph data function:", e)
+                first_error = false
+            }
+            if (min[n] > point) min[n] = point
+            if (max[n] < point) max[n] = point
+        })
+    })
+
+    range_time = max_time - min_time
+    if (range_time <= 0) range_time = 1
+    min.forEach(function(m, n) { min[n] = m >= 0 && m < 10? 0 : Math.floor((m / 10) - 1) * 10 })
+    max.forEach(function(m, n) { max[n] = Math.ceil((m / 10 + 1)) * 10 })
+    range = max.map(function(x, n) {
+        var r = x - min[n]
+        return r <= 0? 1 : r
+    })
+
+    graphs.forEach(function(gf, n) {
+        g.strokeStyle = gf.strokeStyle
+        data.forEach(function(d, dn) {
+            var point = 0
+            try { point = gf.get(d) } catch (e) { }
+            var x = (d.time - min_time) / range_time * width
+            var y = height - (point - min[n]) / range[n] * height
+            if (dn == 0) {
+                g.moveTo(x, y)
+            } else {
+                g.lineTo(x, y)
+            }
+        })
+        g.stroke()
+    })
+
+    g.fillStyle = "black"
+    g.font = "12px sans"
+    var last_timestamp_x = -1000
+    data.forEach(function(d) {
+        var x = (d.time - min_time) / range_time * width
+        if (x - last_timestamp_x > 40) {
+            var t = new Date(d.time * 1000)
+            g.fillText(""+t.getHours()+":"+t.getMinutes()+":"+t.getSeconds(), x, height - 20)
+            last_timestamp_x = x
+        }
+    })
+    graphs.forEach(function(gf, n) {
+        g.fillText(max[n], n * 20, 40)
+        g.fillText(min[n], n * 20, height - 40)
+        g.fillText(Math.round(min[n] + range[n] / 2), n * 20, height / 2 + 10)
+    })
+}
+
+plot(data, [temperature, humidity, battery])
+
+function get_data() {
+    var from = data.length == 0? 0 : data[data.length - 1].time
+    console.log("get data", from)
+
+    var r = new XMLHttpRequest()
+    r.open("GET", "/data?from="+ from, true)
+    r.onreadystatechange = function() {
+        if (r.readyState != 4) return
+        if (r.status != 200) {
+            return banner("error getting data")
+            document.getElementById("status").textContent = "server error"
+        }
+        try {
+            var res = JSON.parse(r.responseText)
+            res.data.forEach(function(d) { data.push(d) })
+            while (data.length > MAX) { data.remove(0) }
+            plot(data, [temperature, humidity, battery])
+            document.getElementById("status").textContent = res.client? "connected" : "no connection"
+        } catch (e) {
+            return banner("error parsing data")
+            document.getElementById("status").textContent = "server error"
+        }
+    }
+    r.send()
+}
+
+function banner(text) {
+    var b = document.getElementById("banner");
+    b.textContent = text
+    b.style.display = "block"
+}
+
+function do_control(body, error) {
+    var r = new XMLHttpRequest()
+    r.open("POST", "/control", true)
+    r.onreadystatechange = function() {
+        if (r.readyState != 4) return
+        if (r.status != 200) return banner(error)
+    }
+    r.send(body)
+}
+
+document.getElementById("pump").onclick = function() { do_control("pump=true", "pump error") }
+document.getElementById("stoppump").onclick = function() { do_control("pump=false", "pump error") }
+document.getElementById("clear").onclick = function() { do_control("clear=true", "clear error") }
+
+setInterval(get_data, 2500)
+</script>

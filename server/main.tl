@@ -1,10 +1,18 @@
 var client
+data = Array.new
+max = 60 / 5 * 60 * 24 * 2 # days
 
 f = io.File("data.txt").open(create=true)
-s = io.Socket.listen(0xda1a >> 3)
-s2 = io.Socket.listen(8080)
+loop:
+    line = f.readLine()
+    if not line: break
+    line = line.eval
+    data.add(line)
 
-log.info("data logger running:", s.ip, s.port)
+s = io.Socket.listen(0xda1a >> 3)
+http = http.Server.new(8080)
+
+log.info("data logger running:", s.ip, s.port, "read from disk:", data.size, "logs")
 
 !s.serve(conn -> !(
     log.info("client", conn.ip, conn.port)
@@ -14,29 +22,41 @@ log.info("data logger running:", s.ip, s.port)
         client = null
         log.error(e)
 
-    log.debug("sending time", localtime())
     conn.write((time() + localtime().gmtoff).round.toString, "\n")
     loop:
         at = conn.find("\n")
         if not at: break
-        data = conn.readString(at).eval
-        if data:
-            data = {time=time().round, ip=conn.ip, port=conn.port, data=data}
-            log.debug(data)
-            f.write(repr(data), "\n")
+        line = conn.readString(at).eval
+        if line:
+            line = {time=time().round, ip=conn.ip, port=conn.port, data=line}
+            log.debug(line)
+            f.write(repr(line), "\n")
+            data.add(line)
+            while data.size > max: data.remove(1)
+
+    client = null
+    log.info("client closed")
 ))
 
-!s2.serve(conn ->
-    catch: e ->
-        log.error(e)
-        conn.write("fail\n")
-    cmd = conn.readLine()
-    print "command: '$(repr(cmd))'"
-    if not cmd: break
-    if not client:
-        conn.write("fail: no client\n")
-        break
-    client.write(cmd, "\n")
-    conn.write("ok\n")
+http.serve(conn ->
+    method, path = multi(conn.req.method, conn.req.url.path)
+    log.info("web client", conn.ip, conn.port, method, path)
+
+    if method == "GET" and path == "/data":
+        conn.setContentType("application/json")
+        from = Number(conn.req.url.query["from"]) or 0
+        tosend = { from == 0 }: data
+                 {           }: at = data.find(d -> d.time == from) or 0
+                                data[at + 1:]
+        conn.write(json.toString({client=bool(client),data=tosend}))
+        return
+
+    if method == "GET" and path == "/":
+        conn.setContentType("text/html")
+        conn.write(io.File("index.html").read)
+        return
+
+    conn.status = 404
+    conn.write("404 Not Found")
 )
 
