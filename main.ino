@@ -402,7 +402,7 @@ void service_wifi() {
             char* endp = 0;
             time_t t = strtoul(buf, &endp, 10);
             if (endp && endp > buf) {
-                state.starttime = t;
+                if (!state.starttime) state.starttime = t;
                 setTime(t);
                 Serial.print(F("command: set time: "));
                 Serial.println(now());
