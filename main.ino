@@ -68,7 +68,7 @@ struct state {
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define REV 8
+#define REV 9
 
 // -- end of config --
 
