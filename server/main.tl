@@ -37,6 +37,7 @@ log.info("data logger running:", s.ip, s.port)
         d = conn.readString(at).eval
         last_data = d
         influxPoint(conn, d)
+        log.debug(d)
 
     client = null
     log.info("client closed")
@@ -44,19 +45,28 @@ log.info("data logger running:", s.ip, s.port)
 
 server.serve(conn ->
     method, path = multi(conn.req.method, conn.req.url.path)
-    log.info("web client", conn.ip, conn.port, method, path)
+
+    if method == "POST" and path == "/command":
+        conn.setContentType("application/json")
+        cmd = conn.body
+        log.info("command:", cmd)
+        if not cmd:
+            return conn.write(json.toString({error="no cmd"}))
+        if not client:
+            return conn.write(json.toString({error="no client connected"}))
+        client.write(cmd)
+        # TODO wait for clients confirm
+        return conn.write(json.toString({ok=true}))
 
     if method == "GET" and path == "/status":
         conn.setContentType("application/json")
         if client:
-            conn.write json.toString(last_data)
-            return
-        conn.write "{}"
-        return
+            return conn.write(json.toString(last_data))
+        return conn.write "{}"
+
     if method == "GET" and path == "/":
         conn.setContentType("text/html")
-        conn.write(io.File("index.html").read)
-        return
+        return conn.write(io.File("index.html").read)
 
     conn.status = 404
     conn.write("404 Not Found")
