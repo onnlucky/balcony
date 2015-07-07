@@ -19,6 +19,10 @@ svg { font: 10px sans-serif; }
     display: none;
 }
 
+.area {
+  fill: rgba(255, 0, 0, 0.5);
+}
+
 .line {
     fill: none;
     stroke: black;
@@ -31,7 +35,45 @@ svg { font: 10px sans-serif; }
 </style>
 <body>
 <p id=status>unknown</p>
+<div id=controls>
+    <button id=pump>pump on</button>
+    <button id=stop>pump off</button>
+    <button id=clear>clear eeprom</button>
+    <label>days: <input type="number" id="days" value="1" min="1" max="5000" /></label>
+</div>
 <script>
+
+var $ = d3.select
+var $$ = d3.selectAll
+
+var pump_clicked = false
+$("#pump").on("click", function() {
+  $("#pump").attr("disabled", true)
+  $("#stop").attr("disabled", null)
+  pump_clicked = +new Date()
+  d3.json("/command").post("pump\n", function(error, res) {
+    if (error) return banner("server error")
+    if (!res.ok) return banner("error pumping")
+  })
+})
+
+$("#stop").on("click", function() {
+  d3.json("/command").post("stop\n", function(error, res) {
+    if (error) return banner("server error")
+    if (!res.ok) return banner("error stopping pump")
+  })
+})
+
+$("#clear").on("click", function() {
+  d3.json("/command").post("clear\n", function(error, res) {
+    if (error) return banner("server error")
+    if (!res.ok) return banner("error stopping pump")
+  })
+})
+
+$("#days").on("change", function() { updategraph() })
+
+$$("#controls button").attr("disabled", true)
 
 var margin = { top: 10, right: 50, bottom: 30, left: 50 }
 var width = document.body.offsetWidth - margin.left - margin.right
@@ -51,6 +93,16 @@ var xG = svg.append("g")
     .attr("class", "x axis").attr("transform", "translate(0,"+ height +")")
     .call(xAxis)
 
+// pump indication
+var pumparea = d3.svg.area()
+  .x(function(d) { return x(d[0])})
+  .y0(function(d) { return d[1] > 0? height : height / 3 * 2 })
+  .y1(height / 3 * 2)
+var pump = svg.append("path")
+  .attr("class", "area pump")
+  .datum([])
+  .attr("d", pumparea)
+
 function plot(name, at, label, n, total, options) {
   options = options || {}
   var orient = options.orient || "left"
@@ -66,7 +118,7 @@ function plot(name, at, label, n, total, options) {
   var tx = orient == "left"? 0 : width
   var dy = orient == "left"? "1.5em" : "4em"
   var g = svg.append("g")
-    .attr("class", "axis "+ name)
+    .attr("class", "axis "+ name +" "+ orient)
     .attr("transform", "translate("+ tx +", 0)")
     .call(axis)
   g.append("text").text(label)
@@ -132,40 +184,89 @@ svg.append("rect")
     highbucketLabel.attr("y", hby).text(d[3].toFixed(0))
   })
 
+function updategraph() {
+  var w = document.body.offsetWidth - margin.left - margin.right
+  if (w != width) {
+    width = w
+    x.range([0, width])
+    $("svg").attr("width", width + margin.left + margin.right)
+    $("svg rect").attr("width", width)
+    $$(".axis.right").attr("transform", "translate("+ width +", 0)")
+  }
 
-function update() {
-    var query = "SELECT MEAN(battery_level),MEAN(mainbucket_level),MEAN(highbucket_level),MEAN(celcius),MEAN(humidity) FROM balcony WHERE time > now() - 1d GROUP BY time(1m) fill(previous)"
-    d3.json("http://localhost:8086/query?db=balcony&q="+ encodeURIComponent(query), function(error, data) {
-        if (error) return console.error(error)
+  var d = 1
+  try { d = parseInt(document.querySelector("#days").value, 10) } catch (e) { d = 1 }
+  if (!d || d < 1) d = 1
+  if (d > 10 * 365) d = 1
 
-        _data = data.results[0].series[0].values
-        _data.forEach(function(v) { v[0] = +new Date(v[0]) })
+  var s = Math.ceil(d * 24 * 60 * 60 / 1000.0)
+  var range = "time > now() - "+ d +"d GROUP BY time("+ s +"s)"
 
-        x.domain(d3.extent(_data, function(d) { return d[0] }))
-        xG.call(xAxis)
+  var query = [
+    "SELECT MEAN(battery_level),MEAN(mainbucket_level),MEAN(highbucket_level),MEAN(celcius),MEAN(humidity) FROM balcony WHERE "+ range +" fill(previous)",
+    "SELECT COUNT(pump_on) FROM balcony WHERE pump_on = true AND "+ range +"fill(0)",
+  ].join(";")
+  d3.json("http://localhost:8086/query?db=balcony&q="+ encodeURIComponent(query), function(error, data) {
+    if (error) return console.error(error)
 
-        battery.datum(_data)
-        temperature.datum(_data)
-        humidity.datum(_data)
-        mainbucket.datum(_data)
-        highbucket.datum(_data)
-    })
+    _data = data.results[0].series[0].values
+    _data.forEach(function(d) { d[0] = +new Date(d[0]) })
+    data.results[1].series[0].values.forEach(function(d) { d[0] = +new Date(d[0]) })
 
-    d3.json("/status", function(error, data) {
-      try {
-        if (error) {
-          d3.select("#status").text("server error")
-        } else if (data) {
-          d3.select("#status").text("uptime: "+ data.uptime +", balcony r"+ data.r + ", battery: "+ data.battery.level.toFixed(1) +" V")
-        } else {
-          d3.select("#status").text("disconnected")
-        }
-      } catch (e) {
-        d3.select("#status").text("server communication error")
-        console.error(e)
-      }
-    })
+    x.domain(d3.extent(_data, function(d) { return d[0] }))
+    xG.call(xAxis)
+
+    pump.datum(data.results[1].series[0].values).attr("d", pumparea)
+
+    battery.datum(_data)
+    temperature.datum(_data)
+    humidity.datum(_data)
+    mainbucket.datum(_data)
+    highbucket.datum(_data)
+  })
+
+  // TODO pump query ... as influx seems crazy ...
 }
 
-setInterval(update, 5000); update()
+function updatestatus() {
+  d3.json("/status", function(error, data) {
+    try {
+      if (error) {
+        $("#status").text("server error")
+        $$("#controls button").attr("disabled", true)
+      } else if (data && data.uptime) {
+
+        var pumping = data.pump.on != 0? "pumping " : ""
+        var d = new Date(data.pump.next * 1000 + new Date().getTimezoneOffset() * 60 * 1000)
+        var next = "next pump: "+ d
+        var a = (d - new Date())/ 1000
+        var after
+        if (a < 0) { after = " now" }
+        else if (a < 120) { after = " after "+ a + " seconds" }
+        else if (a < 3600) { after = " after "+ Math.round(a / 60) +" minutes" }
+        else { after = " after "+ Math.round(a / 60 / 60) +" hours" }
+
+        $("#status").text("uptime: "+ data.uptime +", balcony r "+ data.r +", battery: "+
+          data.battery.level.toFixed(1) +" V " + pumping + next + after
+        )
+        if (!pump_clicked) {
+          $$("#controls button").attr("disabled", null)
+          $("#pump").attr("disabled", data.pump.on != 0? true : null)
+          $("#stop").attr("disabled", data.pump.on == 0? true : null)
+        }
+        if (pump_clicked && new Date() - pump_clicked > 6000) pump_clicked = false
+      } else {
+        $("#status").text("disconnected")
+        $$("#controls button").attr("disabled", true)
+      }
+    } catch (e) {
+      $("#status").text("server communication error")
+      $$("#controls button").attr("disabled", true)
+      console.error(e)
+    }
+  })
+}
+
+setInterval(updatestatus, 1000); updatestatus()
+setInterval(updategraph, 2000); updategraph()
 </script>
