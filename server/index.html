@@ -87,8 +87,18 @@ var svg = d3.select("body").append("svg")
     .append("g").attr("transform", "translate(" + margin.left +","+ margin.top +")")
 
 // time
+var format = d3.time.format.multi([
+  [".%L", function(d) { return d.getMilliseconds(); }],
+  [":%S", function(d) { return d.getSeconds(); }],
+  ["%I:%M", function(d) { return d.getMinutes(); }],
+  ["%H", function(d) { return d.getHours(); }],
+  ["%a %d", function(d) { return d.getDay() && d.getDate() != 1; }],
+  ["%b %d", function(d) { return d.getDate() != 1; }],
+  ["%B", function(d) { return d.getMonth(); }],
+  ["%Y", function() { return true; }]
+]);
 var x = d3.time.scale().range([0, width]).domain([-1 + new Date, +new Date])
-var xAxis = d3.svg.axis().scale(x).orient("bottom")
+var xAxis = d3.svg.axis().scale(x).orient("bottom").tickFormat(format).ticks(width >= 800? 20 : 10)
 var xG = svg.append("g")
     .attr("class", "x axis").attr("transform", "translate(0,"+ height +")")
     .call(xAxis)
@@ -189,6 +199,7 @@ function updategraph() {
   if (w != width) {
     width = w
     x.range([0, width])
+    xAxis.ticks(width >= 800? 20 : 10)
     $("svg").attr("width", width + margin.left + margin.right)
     $("svg rect").attr("width", width)
     $$(".axis.right").attr("transform", "translate("+ width +", 0)")
