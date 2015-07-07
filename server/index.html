@@ -1,171 +1,171 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
 <title>balcony</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js" charset="utf-8"></script>
 <style>
-    html, body { width: 100%; margin: 0; padding 0; box-sizing: border-box; }
-    #banner { background-color: #FFAFAF; width: 100%; padding: 1em; display: none }
-    canvas { padding: 0; width: 100%; height: 200px }
-    #control { margin: 1em }
-</style>
 
-<div id=banner>.</div>
-<div id=status>unknown</div>
-<canvas id=c></canvas>
-<div id=controls>
-    <button id=pump>pump on</button>
-    <button id=stoppump>pump off</button>
-    <button id=clear>clear</button>
-</div>
+body { font: 14px sans-serif; }
+
+svg { font: 10px sans-serif; }
+
+.axis path,
+.axis line {
+    fill: none;
+    stroke: #000;
+    shape-rendering: crispEdges;
+}
+
+.x.axis path {
+    display: none;
+}
+
+.line {
+    fill: none;
+    stroke: black;
+    stroke-width: 1.5px;
+}
+
+.temperature { stroke: #10509a; }
+.humidity { stroke: #b4cfee; }
+
+</style>
+<body>
+<p id=status>unknown</p>
 <script>
 
-MAX = 60 / 5 * 60 * 24 * 2 // days
+var margin = { top: 10, right: 50, bottom: 30, left: 50 }
+var width = document.body.offsetWidth - margin.left - margin.right
+var height = 400 - margin.top - margin.bottom
 
-battery = {
-    get: function(d) { return d.data.battery.level },
-    color: function(l) {
-        if (l <= 11) return "red"
-        if (l <= 11.5) return "orange"
-        if (l <= 12) return "yellow"
-        return "green"
-    },
-    strokeStyle: "black",
-}
-temperature = {
-    get: function(d) { return d.data.temp.celcius },
-    strokeStyle: "black",
-}
-humidity = {
-    get: function(d) { return d.data.temp.humidity },
-    strokeStyle: "blue",
-}
+var _data = []
+var bisectDate = d3.bisector(function(d) { return d[0] }).left;
 
-data = []
+var svg = d3.select("body").append("svg")
+    .attr("width", width + margin.left + margin.right).attr("height", height + margin.top + margin.bottom)
+    .append("g").attr("transform", "translate(" + margin.left +","+ margin.top +")")
 
-var c = document.getElementById("c")
-var g = c.getContext("2d")
+// time
+var x = d3.time.scale().range([0, width]).domain([-1 + new Date, +new Date])
+var xAxis = d3.svg.axis().scale(x).orient("bottom")
+var xG = svg.append("g")
+    .attr("class", "x axis").attr("transform", "translate(0,"+ height +")")
+    .call(xAxis)
 
-function plot(data, graphs) {
-    var width = c.offsetWidth
-    var height = c.offsetHeight
-    g.width = c.width = width
-    g.height = c.height = height
+function plot(name, at, label, n, total, options) {
+  options = options || {}
+  var orient = options.orient || "left"
 
-    g.fillStyle = "lightgreen"
-    g.fillStyle = "white"
-    g.fillRect(0, 0, width, height)
+  var scale = d3.scale.linear().range([height / total * n - 5, height / total * (n - 1) + 5])
+  if (options.domain) scale.domain(options.domain)
 
-    if (data.length == 0) return
+  var axis = d3.svg.axis().scale(scale).orient(orient)
+  var line = d3.svg.line()
+    .x(function(d) { return x(d[0])})
+    .y(function(d) { return scale(d[at])})
 
-    var min_time = Number.MAX_VALUE
-    var max_time = Number.MIN_VALUE
-    var range_time = 0
-    var min = graphs.map(function() { return Number.MAX_VALUE })
-    var max = graphs.map(function() { return Number.MIN_VALUE })
-    var range = []
+  var tx = orient == "left"? 0 : width
+  var dy = orient == "left"? "1.5em" : "4em"
+  var g = svg.append("g")
+    .attr("class", "axis "+ name)
+    .attr("transform", "translate("+ tx +", 0)")
+    .call(axis)
+  g.append("text").text(label)
+      .attr("transform", "rotate(-90)").attr("x", -scale.range()[1]).attr("dy", dy).style("text-anchor", "end")
 
-    var first_error = true
-    data.forEach(function(d) {
-        if (d.time < min_time) min_time = d.time
-        if (d.time > max_time) max_time = d.time
-        graphs.forEach(function(gf, n) {
-            var point = 0
-            try { point = gf.get(d) } catch (e) {
-                if (first_error) console.error("error in graph data function:", e)
-                first_error = false
-            }
-            if (min[n] > point) min[n] = point
-            if (max[n] < point) max[n] = point
-        })
-    })
+  var path = svg.append("path")
+    .attr("class", "line "+ name)
+    .datum([])
+    .attr("d", line)
 
-    range_time = max_time - min_time
-    if (range_time <= 0) range_time = 1
-    min.forEach(function(m, n) { min[n] = m >= 0 && m < 10? 0 : Math.floor((m / 10) - 1) * 10 })
-    max.forEach(function(m, n) { max[n] = Math.ceil((m / 10 + 1)) * 10 })
-    range = max.map(function(x, n) {
-        var r = x - min[n]
-        return r <= 0? 1 : r
-    })
-
-    graphs.forEach(function(gf, n) {
-        g.strokeStyle = gf.strokeStyle
-        data.forEach(function(d, dn) {
-            var point = 0
-            try { point = gf.get(d) } catch (e) { }
-            var x = (d.time - min_time) / range_time * width
-            var y = height - (point - min[n]) / range[n] * height
-            if (dn == 0) {
-                g.moveTo(x, y)
-            } else {
-                g.lineTo(x, y)
-            }
-        })
-        g.stroke()
-    })
-
-    g.fillStyle = "black"
-    g.font = "12px sans"
-    var last_timestamp_x = -1000
-    data.forEach(function(d) {
-        var x = (d.time - min_time) / range_time * width
-        if (x - last_timestamp_x > 40) {
-            var t = new Date(d.time * 1000)
-            g.fillText(""+t.getHours()+":"+t.getMinutes()+":"+t.getSeconds(), x, height - 20)
-            last_timestamp_x = x
-        }
-    })
-    graphs.forEach(function(gf, n) {
-        g.fillText(max[n], n * 20, 40)
-        g.fillText(min[n], n * 20, height - 40)
-        g.fillText(Math.round(min[n] + range[n] / 2), n * 20, height / 2 + 10)
-    })
-}
-
-plot(data, [temperature, humidity, battery])
-
-function get_data() {
-    var from = data.length == 0? 0 : data[data.length - 1].time
-    console.log("get data", from)
-
-    var r = new XMLHttpRequest()
-    r.open("GET", "/data?from="+ from, true)
-    r.onreadystatechange = function() {
-        if (r.readyState != 4) return
-        if (r.status != 200) {
-            return banner("error getting data")
-            document.getElementById("status").textContent = "server error"
-        }
-        try {
-            var res = JSON.parse(r.responseText)
-            res.data.forEach(function(d) { data.push(d) })
-            while (data.length > MAX) { data.remove(0) }
-            plot(data, [temperature, humidity, battery])
-            document.getElementById("status").textContent = res.client? "connected" : "no connection"
-        } catch (e) {
-            return banner("error parsing data")
-            document.getElementById("status").textContent = "server error"
-        }
+  var datum = function(data) {
+    if (!options.domain) {
+      scale.domain(d3.extent(data, function(d) { return d[at] })).nice()
+      axis.scale(scale)
     }
-    r.send()
+    g.call(axis)
+    path.datum(data).attr("d", line)
+  }
+
+  return { scale: scale, datum: datum }
 }
 
-function banner(text) {
-    var b = document.getElementById("banner");
-    b.textContent = text
-    b.style.display = "block"
+var battery = plot("battery", 1, "Battery (V)", 1, 3, {domain: [10, 15], orient: "right"})
+var temperature = plot("temperature", 4, "Temperature (c)", 2, 3, {orient: "right"})
+var humidity = plot("humidity", 5, "Humidity (%)", 2, 3, {domain: [0, 100]})
+
+var mainbucket = plot("mainbucket", 2, "Main Bucket Level", 3, 3, {domain: [0, 100], orient: "right"})
+var highbucket = plot("highbucket", 3, "High Bucket Level", 3, 3, {domain: [512, 1024]})
+
+// focus
+var focus = svg.append("g").style("display", "none").attr("transform", "translate("+ width +",0)")
+focus.append("circle").attr("cy", height).attr("r", 3).style("fill", "black")
+focus.append("line").attr("stroke", "blue").style("stroke-dasharray", "3,3").style("opacity", 0.5)
+  .attr("y1", 0).attr("y2", height)
+
+var batteryLabel = focus.append("text")
+var temperatureLabel = focus.append("text")
+var humidityLabel = focus.append("text")
+var mainbucketLabel = focus.append("text")
+var highbucketLabel = focus.append("text")
+
+svg.append("rect")
+  .attr("width", width).attr("height", height).style("fill", "none").style("pointer-events", "all")
+  .on("mouseover", function() { focus.style("display", null)})
+  .on("mouseout", function() { focus.style("display", "none")})
+  .on("mousemove", function() {
+    if (_data.length == 0) return
+    var x0 = x.invert(d3.mouse(this)[0])
+    var at = bisectDate(_data, x0, 1)
+    var d = _data[at]
+    focus.attr("transform", "translate("+ x(d[0]) +",0)")
+
+    var by = battery.scale(d[1])
+    var ty = temperature.scale(d[4])
+    var hy = humidity.scale(d[5])
+    var mby = mainbucket.scale(d[2])
+    var hby = highbucket.scale(d[3])
+    // TODO spread them out if close together
+    batteryLabel.attr("y", by).text(d[1].toFixed(1))
+    temperatureLabel.attr("y", ty).text(d[4].toFixed(1))
+    humidityLabel.attr("y", hy).text(d[5].toFixed(1))
+    mainbucketLabel.attr("y", mby).text(d[2].toFixed(0))
+    highbucketLabel.attr("y", hby).text(d[3].toFixed(0))
+  })
+
+
+function update() {
+    var query = "SELECT MEAN(battery_level),MEAN(mainbucket_level),MEAN(highbucket_level),MEAN(celcius),MEAN(humidity) FROM balcony WHERE time > now() - 1d GROUP BY time(1m) fill(previous)"
+    d3.json("http://localhost:8086/query?db=balcony&q="+ encodeURIComponent(query), function(error, data) {
+        if (error) return console.error(error)
+
+        _data = data.results[0].series[0].values
+        _data.forEach(function(v) { v[0] = +new Date(v[0]) })
+
+        x.domain(d3.extent(_data, function(d) { return d[0] }))
+        xG.call(xAxis)
+
+        battery.datum(_data)
+        temperature.datum(_data)
+        humidity.datum(_data)
+        mainbucket.datum(_data)
+        highbucket.datum(_data)
+    })
+
+    d3.json("/status", function(error, data) {
+      try {
+        if (error) {
+          d3.select("#status").text("server error")
+        } else if (data) {
+          d3.select("#status").text("uptime: "+ data.uptime +", balcony r"+ data.r + ", battery: "+ data.battery.level.toFixed(1) +" V")
+        } else {
+          d3.select("#status").text("disconnected")
+        }
+      } catch (e) {
+        d3.select("#status").text("server communication error")
+        console.error(e)
+      }
+    })
 }
 
-function do_control(body, error) {
-    var r = new XMLHttpRequest()
-    r.open("POST", "/control", true)
-    r.onreadystatechange = function() {
-        if (r.readyState != 4) return
-        if (r.status != 200) return banner(error)
-    }
-    r.send(body)
-}
-
-document.getElementById("pump").onclick = function() { do_control("pump=true", "pump error") }
-document.getElementById("stoppump").onclick = function() { do_control("pump=false", "pump error") }
-document.getElementById("clear").onclick = function() { do_control("clear=true", "clear error") }
-
-setInterval(get_data, 2500)
+setInterval(update, 5000); update()
 </script>

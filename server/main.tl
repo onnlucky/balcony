@@ -1,18 +1,26 @@
-var client
-data = Array.new
-max = 60 / 5 * 60 * 24 * 2 # days
+influxPoint = conn, d, line ->
+    conn = line or conn
+    d = line?data or d
 
-f = io.File("data.txt").open(create=true)
-loop:
-    line = f.readLine()
-    if not line: break
-    line = line.eval
-    data.add(line)
+    body = "balcony,r=$(d.r)" +
+        " ip=\"$(conn.ip)\",port=$(conn.port),uptime=$(d.uptime)" +
+        ",pump_on=$(d.pump.on > 0),pump_duration=$(d.pump.duration),pump_next=$(d.pump.next),pump_last=$(d.pump.last)" +
+        ",battery_level=$(d.battery.level)" +
+        ",mainbucket_level=$(d.mainbucket.level)" +
+        ",highbucket_level=$(d.highbucket.level)" +
+        ",celcius=$(d.temperature.celcius),humidity=$(d.temperature.humidity)" +
+        if(line, " $(line.time)\n", "\n")
+
+    body, res = http.post("http://localhost:8086/write?db=balcony&precision=s", body)
+    if res.status < 200 and res.status >= 300: log.warning(res.status, body)
+
+var client
+var last_data
 
 s = io.Socket.listen(0xda1a >> 3)
-http = http.Server.new(8080)
+server = http.Server.new(8080)
 
-log.info("data logger running:", s.ip, s.port, "read from disk:", data.size, "logs")
+log.info("data logger running:", s.ip, s.port)
 
 !s.serve(conn -> !(
     log.info("client", conn.ip, conn.port)
@@ -26,31 +34,25 @@ log.info("data logger running:", s.ip, s.port, "read from disk:", data.size, "lo
     loop:
         at = conn.find("\n")
         if not at: break
-        line = conn.readString(at).eval
-        if line:
-            line = {time=time().round, ip=conn.ip, port=conn.port, data=line}
-            log.debug(line)
-            f.write(repr(line), "\n")
-            data.add(line)
-            while data.size > max: data.remove(1)
+        d = conn.readString(at).eval
+        last_data = d
+        influxPoint(conn, d)
 
     client = null
     log.info("client closed")
 ))
 
-http.serve(conn ->
+server.serve(conn ->
     method, path = multi(conn.req.method, conn.req.url.path)
     log.info("web client", conn.ip, conn.port, method, path)
 
-    if method == "GET" and path == "/data":
+    if method == "GET" and path == "/status":
         conn.setContentType("application/json")
-        from = Number(conn.req.url.query["from"]) or 0
-        tosend = { from == 0 }: data
-                 {           }: at = data.find(d -> d.time == from) or 0
-                                data[at + 1:]
-        conn.write(json.toString({client=bool(client),data=tosend}))
+        if client:
+            conn.write json.toString(last_data)
+            return
+        conn.write "{}"
         return
-
     if method == "GET" and path == "/":
         conn.setContentType("text/html")
         conn.write(io.File("index.html").read)
@@ -59,4 +61,3 @@ http.serve(conn ->
     conn.status = 404
     conn.write("404 Not Found")
 )
-
