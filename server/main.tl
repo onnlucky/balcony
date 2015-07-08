@@ -1,3 +1,5 @@
+#!/usr/bin/env tl
+
 influxPoint = conn, d, line ->
     conn = line or conn
     d = line?data or d
