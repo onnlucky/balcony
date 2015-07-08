@@ -40,7 +40,7 @@ struct state {
 
 #define SSID F("SSID")
 #define PASS F("PASS")
-#define HOST F("192.168.87.101")
+#define HOST F("192.168.87.2")
 #define PORT 6979
 
 // moist sensor in the high up bucket, used as "full" indicator

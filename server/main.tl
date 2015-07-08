@@ -18,7 +18,7 @@ var client
 var last_data
 
 s = io.Socket.listen(0xda1a >> 3)
-server = http.Server.new(8080)
+server = http.Server.new(80)
 
 log.info("data logger running:", s.ip, s.port)
 
