@@ -194,6 +194,8 @@ svg.append("rect")
     highbucketLabel.attr("y", hby).text(d[3].toFixed(0))
   })
 
+var graphreq = 0
+var graphdraw = 0
 function updategraph() {
   var w = document.body.offsetWidth - margin.left - margin.right
   if (w != width) {
@@ -206,7 +208,7 @@ function updategraph() {
   }
 
   var d = 1
-  try { d = parseInt(document.querySelector("#days").value, 10) } catch (e) { d = 1 }
+  try { d = parseInt($("#days").node().value, 10) } catch (e) { d = 1 }
   if (!d || d < 1) d = 1
   if (d > 10 * 365) d = 1
 
@@ -217,7 +219,12 @@ function updategraph() {
     "SELECT MEAN(battery_level),MEAN(mainbucket_level),MEAN(highbucket_level),MEAN(celcius),MEAN(humidity) FROM balcony WHERE "+ range +" fill(previous)",
     "SELECT COUNT(pump_on) FROM balcony WHERE pump_on = true AND "+ range +"fill(0)",
   ].join(";")
+
+  var c = ++graphreq
   d3.json("http://192.168.87.2:8086/query?db=balcony&q="+ encodeURIComponent(query), function(error, data) {
+    if (c < graphdraw) return // stale
+    graphdraw = c
+
     if (error) return console.error(error)
 
     _data = data.results[0].series[0].values
@@ -239,8 +246,11 @@ function updategraph() {
   // TODO pump query ... as influx seems crazy ...
 }
 
+var statusc = 0
 function updatestatus() {
+  var c = ++statusc
   d3.json("/status", function(error, data) {
+    if (c != statusc) return // stale
     try {
       if (error) {
         $("#status").text("server error")
