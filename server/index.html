@@ -31,7 +31,12 @@ svg { font: 10px sans-serif; }
 
 .temperature { stroke: #10509a; }
 .humidity { stroke: #b4cfee; }
-
+.warning {
+  background-color: #FFA0A0;
+  padding: 0.2em 0.5em;
+  border-radius: 5px;
+  display: none;
+}
 </style>
 <body>
 <p id=status>unknown</p>
@@ -40,7 +45,10 @@ svg { font: 10px sans-serif; }
     <button id=stop>pump off</button>
     <button id=clear>clear eeprom</button>
     <label>days: <input type="number" id="days" value="1" min="1" max="5000" /></label>
+    <span class="battery warning">low battery warning!</span>
+    <span class="water warning">low water warning!</span>
 </div>
+<svg></svg>
 <script>
 
 var $ = d3.select
@@ -82,7 +90,7 @@ var height = 400 - margin.top - margin.bottom
 var _data = []
 var bisectDate = d3.bisector(function(d) { return d[0] }).left;
 
-var svg = d3.select("body").append("svg")
+var svg = d3.select("svg")
     .attr("width", width + margin.left + margin.right).attr("height", height + margin.top + margin.bottom)
     .append("g").attr("transform", "translate(" + margin.left +","+ margin.top +")")
 
@@ -257,6 +265,9 @@ function updatestatus() {
         $$("#controls button").attr("disabled", true)
       } else if (data && data.uptime) {
 
+        if (data.battery.level <= 11) $(".battery .warning").style("display", null)
+        if (data.mainbucket.level <= 40) $(".water .warning").style("display", null)
+
         var pumping = data.pump.on != 0? "pumping " : ""
         var d = new Date(data.pump.next * 1000 + new Date().getTimezoneOffset() * 60 * 1000)
         var next = "next pump: "+ d
@@ -288,6 +299,6 @@ function updatestatus() {
   })
 }
 
-setInterval(updatestatus, 1000); updatestatus()
-setInterval(updategraph, 2000); updategraph()
+setInterval(updatestatus, 1500); setTimeout(updatestatus, 0)
+setInterval(updategraph, 5000); setTimeout(updategraph, 0)
 </script>
