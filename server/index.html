@@ -258,6 +258,9 @@ var statusc = 0
 function updatestatus() {
   var c = ++statusc
   d3.json("/status", function(error, data) {
+    $(".battery.warning").style("display", null)
+    $(".water.warning").style("display", null)
+
     if (c != statusc) return // stale
     try {
       if (error) {
@@ -265,8 +268,8 @@ function updatestatus() {
         $$("#controls button").attr("disabled", true)
       } else if (data && data.uptime) {
 
-        if (data.battery.level <= 11) $(".battery .warning").style("display", null)
-        if (data.mainbucket.level <= 40) $(".water .warning").style("display", null)
+        if (data.battery.level <= 11) $(".battery.warning").style("display", "inline")
+        if (data.mainbucket.level <= 40) $(".water.warning").style("display", "inline")
 
         var pumping = data.pump.on != 0? "pumping " : ""
         var d = new Date(data.pump.next * 1000 + new Date().getTimezoneOffset() * 60 * 1000)
