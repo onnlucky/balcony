@@ -42,6 +42,7 @@ struct state {
 #define PASS F("PASS")
 #define HOST F("192.168.87.2")
 #define PORT 6979
+#define GMTOFF (-2 * 60 * 60)
 
 // moist sensor in the high up bucket, used as "full" indicator
 #define HIGHBUCKET_LEVEL_PIN A0
@@ -68,7 +69,7 @@ struct state {
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define REV 9
+#define REV 10
 
 // -- end of config --
 
@@ -347,11 +348,11 @@ void send_data() {
 
     int len = snprintf_P(buf, sizeof(buf), fmt,
         REV, now() - state.starttime,
-        bbuf, state.battery.last_time,
-        state.pump.duration, state.pump.on, state.pump.next_time, state.pump.last_time,
-        state.highbucket.level, state.highbucket.last_time,
-        state.mainbucket.level, state.highbucket.last_time,
-        cbuf, hbuf, state.temperature.last_time);
+        bbuf, state.battery.last_time + GMTOFF,
+        state.pump.duration, state.pump.on, state.pump.next_time + GMTOFF, state.pump.last_time + GMTOFF,
+        state.highbucket.level, state.highbucket.last_time + GMTOFF,
+        state.mainbucket.level, state.highbucket.last_time + GMTOFF,
+        cbuf, hbuf, state.temperature.last_time + GMTOFF);
 
     if ((unsigned)len >= sizeof(buf)) {
         Serial.print(F("wifi: error buffer too small: "));
@@ -372,6 +373,39 @@ void send_data() {
         state.wifi.connected = false;
     }
     state.wifi.last_time = now();
+}
+void process_cmd(const char* buf) {
+    if (buf[0] >= '1' && buf[0] <= '4') { // time command
+        char* endp = 0;
+        time_t t = strtoul(buf, &endp, 10);
+        if (endp && endp > buf) {
+            t -= GMTOFF;
+            if (!state.starttime) state.starttime = t;
+            setTime(t);
+            Serial.print(F("command: set time: "));
+            Serial.println(now());
+        } else {
+            Serial.print(F("command: error setting time: "));
+            Serial.println(buf);
+        }
+    } else if (!strcmp(buf, "pump")) {
+        Serial.println(F("command: pump"));
+        state.pump.next_time = now();
+    } else if (!strcmp(buf, "stop")) {
+        Serial.println(F("command: stop"));
+        if (state.pump.on) {
+            Serial.println(F("pump off: stop received"));
+            pump_off();
+        }
+    } else if (!strcmp(buf, "clear")) {
+        Serial.println(F("command: clear"));
+        eeprom_write_dword((uint32_t*)0, 0);
+        eeprom_write_byte((uint8_t*)4, 0);
+        eeprom_write_word((uint16_t*)5, 0);
+    } else {
+        Serial.print(F("command: error, received: "));
+        Serial.println(buf);
+    }
 }
 
 void service_wifi() {
@@ -397,37 +431,7 @@ void service_wifi() {
         // strip buf of whitespace and \n
         for (int i = 0; i < len; i++) if (buf[i] <= 32) buf[i] = 0;
         buf[len] = 0;
-
-        if (buf[0] >= '1' && buf[0] <= '4') { // time command
-            char* endp = 0;
-            time_t t = strtoul(buf, &endp, 10);
-            if (endp && endp > buf) {
-                if (!state.starttime) state.starttime = t;
-                setTime(t);
-                Serial.print(F("command: set time: "));
-                Serial.println(now());
-            } else {
-                Serial.print(F("command: error setting time: "));
-                Serial.println(buf);
-            }
-        } else if (!strcmp(buf, "pump")) {
-            Serial.println(F("command: pump"));
-            state.pump.next_time = now();
-        } else if (!strcmp(buf, "stop")) {
-            Serial.println(F("command: stop"));
-            if (state.pump.on) {
-                Serial.println(F("pump off: stop received"));
-                pump_off();
-            }
-        } else if (!strcmp(buf, "clear")) {
-            Serial.println(F("command: clear"));
-            eeprom_write_dword((uint32_t*)0, 0);
-            eeprom_write_byte((uint8_t*)4, 0);
-            eeprom_write_word((uint16_t*)5, 0);
-        } else {
-            Serial.print(F("command: error, received: "));
-            Serial.println(buf);
-        }
+        process_cmd((const char*)buf);
         wifi.putPacketBuffer(packetbuffer, sizeof(packetbuffer));
     }
 }
@@ -448,11 +452,34 @@ void service_statusled() {
     digitalWrite(13, (status >> at) & 1);
 }
 
+void service_serial() {
+    static char buf[100];
+    static unsigned at = 0;
+
+    while (Serial.available()) {
+        char c = buf[at] = Serial.read();
+        if (c <= 32) {
+            buf[at] = 0;
+            if (at > 0) {
+                Serial.write('\n');
+                process_cmd(buf);
+            }
+            at = 0;
+        } else {
+            Serial.write(c);
+            at += 1;
+            if (at >= sizeof(buf)) at = 0;
+        }
+    }
+}
+
 void loop() {
 #ifndef TESTING
     // first, so measuring sensors etc can use serial buffer
     service_wifi();
 #endif
+
+    service_serial();
 
     service_temperature();
     service_highbucket();
