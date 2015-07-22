@@ -70,7 +70,7 @@ struct state {
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define REV 11
+#define REV 12
 
 // -- end of config --
 
@@ -89,7 +89,7 @@ struct state {
 
 SoftwareSerial esp(ESP_TX, ESP_RX);
 ESP8266 wifi(esp, ESP_RESET);
-uint8_t packetbuffer[32];
+uint8_t packetbuffer[128];
 
 static inline uint8_t checksum(uint32_t from) {
     return (from >> 24) + (from >> 16) + (from >> 8) + from;
@@ -385,7 +385,7 @@ void process_cmd(const char* buf) {
     if (buf[0] >= '1' && buf[0] <= '4') { // time command
         char* endp = 0;
         time_t t = strtoul(buf, &endp, 10);
-        if (endp && endp > buf) {
+        if (endp && endp > buf && t >= 1400000000UL) {
             t -= GMTOFF;
             if (!state.starttime) state.starttime = t;
             setTime(t);
