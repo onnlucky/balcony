@@ -19,6 +19,7 @@ class ESP8266 {
     int waitfor(const uint32_t* needles, int nlen, uint32_t timeout, char prompt=0, char* rec=NULL, int reclen=0);
     void receiveIPD();
 
+    int setAPMode();
     int joinAP2();
     int tcpOpen2();
 

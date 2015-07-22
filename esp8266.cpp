@@ -145,7 +145,7 @@ int ESP8266::hardwareReset() {
     delay(100);
     pinMode(reset_pin, INPUT);
     const uint32_t needles[] = {NL_READY};
-    if (waitfor(needles, 1, 3000) < 0) return -1;
+    if (waitfor(needles, 1, 2500) < 0) return -1;
 
 #ifndef DEBUG
     espconn->println(F("ATE0"));
@@ -165,7 +165,7 @@ int ESP8266::reset() {
     delay(1000);
     espconn->println(F("AT+RST"));
     const uint32_t needles[] = {NL_READY};
-    if (waitfor(needles, 1, 3000) < 0) return -1;
+    if (waitfor(needles, 1, 2500) < 0) return -1;
 
 #ifndef DEBUG
     espconn->println(F("ATE0"));
@@ -180,6 +180,13 @@ int ESP8266::reset() {
     return 0;
 }
 
+int ESP8266::setAPMode() {
+    waitfor(NULL, 0, 0);
+    espconn->println(F("AT+CWMODE=1"));
+    const uint32_t needles[] = {NL_OK, NL_CHANGE};
+    return waitfor(needles, 2, 200);
+}
+
 int ESP8266::joinAP2() {
     const uint32_t needles[] = {NL_OK, NL_FAIL};
     int res = waitfor(needles, 2, 20000);
@@ -187,6 +194,8 @@ int ESP8266::joinAP2() {
 }
 
 int ESP8266::joinAP(const char* ssid, const char* pass) {
+    if (setAPMode() < 0) return -1;
+
     waitfor(NULL, 0, 0);
     espconn->print(F("AT+CWJAP=\""));
     espconn->print(ssid);
@@ -197,6 +206,8 @@ int ESP8266::joinAP(const char* ssid, const char* pass) {
 }
 
 int ESP8266::joinAP(Fstr* ssid, Fstr* pass) {
+    if (setAPMode() < 0) return -1;
+
     waitfor(NULL, 0, 0);
     espconn->print(F("AT+CWJAP=\""));
     espconn->print(ssid);
@@ -215,15 +226,18 @@ int ESP8266::leaveAP() {
 }
 
 int ESP8266::tcpOpen2() {
-    const uint32_t needles[] = {NL_OK, NL_ERROR, NL_CONNECT};
+    const uint32_t needles[] = {NL_OK, NL_CONNECT, NL_ERROR};
     int res = waitfor(needles, 3, 20000);
-    if (res != 0) {
+    if (res != 0 && res != 1) {
         return res <= 0? res : -(res + 1);
     }
 
-    const uint32_t needles2[] = {NL_OK, NL_ERROR};
+    const uint32_t needles2[] = {NL_OK, NL_CONNECT, NL_ERROR};
     res = waitfor(needles2, 2, 20000);
-    return res <= 0? res : -(res + 10);
+    if (res != 0 && res != 1) {
+        return res <= 0? res : -(res + 1);
+    }
+    return 0;
 }
 
 int ESP8266::tcpOpen(const char* adress, int port) {
@@ -262,10 +276,12 @@ int ESP8266::tcpSend(const uint8_t* data, int len) {
     if (res != 0) return -1;
 
     espconn->write(data, len);
-
+/*
     const uint32_t needles2[] = {NL_OK, NL_ERROR};
     res = waitfor(needles2, 2, 5000);
     return res <= 0? res : -(res + 1);
+*/
+    return 0;
 }
 
 int ESP8266::tcpReceive(uint8_t* data, int len, uint32_t timeout) {
@@ -298,7 +314,7 @@ int ESP8266::getVersion(char* str, int len) {
     espconn->println(F("AT+GMR"));
 
     const uint32_t needles[] = {NL_OK};
-    int res = waitfor(needles, 1, 500, 0, str, len);
+    int res = waitfor(needles, 1, 200, 0, str, len);
     trimsome(str, len);
 #ifdef DEBUG
     // remove "AT+GMR\r\n"
