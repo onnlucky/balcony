@@ -82,7 +82,7 @@ void ESP8266::receiveIPD() {
 #endif
 }
 
-int ESP8266::waitfor(const uint32_t* needles, int nlen, uint32_t timeout, char prompt, char* rec, int reclen) {
+int ESP8266::waitfor(const uint32_t* needles, int nlen, uint32_t timeout, char prompt, char* rec, int reclen, int* at) {
     uint32_t start = millis();
     int recat = 0;
 
@@ -108,9 +108,15 @@ int ESP8266::waitfor(const uint32_t* needles, int nlen, uint32_t timeout, char p
 #endif
 
             if (state == NL_IPD) receiveIPD();
-            if (prompt && (uint8_t)prompt == c) return nlen;
+            if (prompt && (uint8_t)prompt == c) return nlen; // found prompt
             for (int i = 0; i < nlen; i++) {
-                if (state == needles[i]) return i;
+                if (state == needles[i]) {
+                    if (rec && recat < reclen) {
+                        rec[recat] = 0;
+                        if (at) *at = recat;
+                    }
+                    return i; // found a needle
+                }
             }
         }
     } while ((uint32_t)(millis() - start) < timeout);
@@ -301,25 +307,19 @@ int ESP8266::tcpReceive(uint8_t* data, int len, uint32_t timeout) {
     return 0; // timeout
 }
 
-static void trimsome(char* str, int strlen) {
-    str[strlen - 1] = 0;
-    for (int i = 0; i < strlen; i++) {
-        if (str[i] <= 32) str[i] = 0;
-    }
-}
-
 int ESP8266::getVersion(char* str, int len) {
     str[0] = 0;
     waitfor(NULL, 0, 0);
     espconn->println(F("AT+GMR"));
 
     const uint32_t needles[] = {NL_OK};
-    int res = waitfor(needles, 1, 200, 0, str, len);
-    trimsome(str, len);
+    int at = 0;
+    int res = waitfor(needles, 1, 200, 0, str, len, &at);
 #ifdef DEBUG
     // remove "AT+GMR\r\n"
     for (int i = 0; i < len - 9; i++) str[i] = str[i + 9];
 #endif
+    for (int i = at - 6; i >= 0 && i < at; i++) str[i] = 0; // remove \r\nOK\r\n
     return res;
 }
 
@@ -329,12 +329,13 @@ int ESP8266::getIP(char* str, int len) {
     espconn->println(F("AT+CIFSR"));
 
     const uint32_t needles[] = {NL_OK};
-    int res = waitfor(needles, 1, 500, 0, str, len);
-    trimsome(str, len);
+    int at = 0;
+    int res = waitfor(needles, 1, 500, 0, str, len, &at);
 #ifdef DEBUG
     // remove "AT+CIFSTR\n"
     for (int i = 0; i < len - 12; i++) str[i] = str[i + 12];
 #endif
+    for (int i = at - 6; i >= 0 && i < at; i++) str[i] = 0; // remove \r\nOK\r\n
     return res;
 }
 
