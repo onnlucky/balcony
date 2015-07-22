@@ -46,6 +46,7 @@ struct state {
 
 // moist sensor in the high up bucket, used as "full" indicator
 #define HIGHBUCKET_LEVEL_PIN A0
+#define HIGHBUCKET_ENABLE_PIN 8
 #define HIGHBUCKET_LEVEL_REACHED 800
 
 // capacitive water level sensor in the main bucket
@@ -69,7 +70,7 @@ struct state {
 #define ESP_TX 3
 #define ESP_RESET 4
 
-#define REV 10
+#define REV 11
 
 // -- end of config --
 
@@ -106,6 +107,9 @@ void setup() {
     pinMode(13, OUTPUT);
     digitalWrite(13, LOW);
 
+    pinMode(HIGHBUCKET_ENABLE_PIN, OUTPUT);
+    digitalWrite(HIGHBUCKET_ENABLE_PIN, LOW);
+
     uint32_t last_time = eeprom_read_dword((uint32_t*)0);
     uint8_t check = eeprom_read_byte((uint8_t*)4);
     int duration = eeprom_read_word((uint16_t*)5);
@@ -126,7 +130,10 @@ void setup() {
 }
 
 void measure_highbucket_level() {
+    digitalWrite(HIGHBUCKET_ENABLE_PIN, HIGH);
+    delay(10);
     state.highbucket.level = analogRead(HIGHBUCKET_LEVEL_PIN);
+    digitalWrite(HIGHBUCKET_ENABLE_PIN, LOW);
     state.highbucket.last_time = now();
 }
 
@@ -243,17 +250,17 @@ void service_temperature() {
 }
 
 void service_highbucket() {
-    if (!state.pump.on && state.highbucket.last_time + 1 > now()) return;
+    if (!state.pump.on && state.highbucket.last_time + 60 > now()) return;
     measure_highbucket_level();
 }
 
 void service_mainbucket() {
-    if (state.mainbucket.last_time + 1 > now()) return;
+    if (state.mainbucket.last_time + 2 > now()) return;
     measure_mainbucket_level();
 }
 
 void service_battery() {
-    if (state.battery.last_time + 1 > now()) return;
+    if (state.battery.last_time + 2 > now()) return;
     measure_battery_level();
 }
 
