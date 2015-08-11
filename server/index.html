@@ -272,7 +272,7 @@ function updatestatus() {
         if (data.mainbucket.level <= 40) $(".water.warning").style("display", "inline")
 
         var pumping = data.pump.on != 0? "pumping " : ""
-        var d = new Date(data.pump.next * 1000 + new Date().getTimezoneOffset() * 60 * 1000)
+        var d = new Date(data.pump.next * 1000)
         var next = "next pump: "+ d
         var a = (d - new Date())/ 1000
         var after

@@ -13,6 +13,7 @@ influxPoint = conn, d, line ->
         ",celcius=$(d.temperature.celcius),humidity=$(d.temperature.humidity)" +
         if(line, " $(line.time)\n", "\n")
 
+    catch: e -> log.warning(e)
     body, res = http.post("http://localhost:8086/write?db=balcony&precision=s", body)
     if res.status < 200 and res.status >= 300: log.warning(res.status, body)
 
@@ -32,7 +33,7 @@ log.info("data logger running:", s.ip, s.port)
         client = null
         log.error(e)
 
-    conn.write((time() + localtime().gmtoff).round.toString, "\n")
+    conn.write(time().round.toString, "\n")
     loop:
         at = conn.find("\n")
         if not at: break
